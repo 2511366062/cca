@@ -1,0 +1,534 @@
+---
+title: "Mye"
+author: "lixiaokang"
+date: "2025-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. 聚类分析
+```{r}
+library(harmony)
+
+obj_macr = subset(sce.all, celltype == "macrophage")
+obj_macr = obj_macr %>% 
+    NormalizeData() %>%  
+    FindVariableFeatures() %>%  
+    ScaleData(features = rownames(.)) %>%  
+    RunPCA(pc.genes = VariableFeatures(.))  %>%
+    RunHarmony("orig.ident") %>%
+    FindNeighbors(dims = 1:15, reduction = "harmony") %>% 
+    FindClusters(resolution = 0.7) %>% 
+    RunUMAP(dims = 1:15,reduction = "harmony") #%>% 
+
+#0 - 13个簇
+
+```
+
+
+## 注释
+```{r}
+
+markers <- FindAllMarkers(obj_macr, #only.pos = TRUE, 只返回正
+                               min.pct = 0.25, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+  
+    test_markers = markers[markers$avg_log2FC > 0.4 & 
+                             markers$pct.1 > 0.25  & 
+                             markers$cluster %in% 11:15 &
+                             markers$p_val_adj < 0.01,c("avg_log2FC","cluster", "gene")]
+library(data.table)
+fwrite(test_markers, "export/test_markers(11-15).csv")
+
+writeLines(paste0(as.character(0:15),","))
+
+obj_macr= zhushi(object = obj_macr,file = "import/zhushi/macr_zhushi.txt")
+
+
+
+genes = c("CD163", "APOE", "FOLR2",
+          "CCL3", "CXCL9", "HSPA1A",
+          "S100A8","S100A9", "FCN1", "LYZ",
+          "SPP1", "CTSD", "FN1",
+          "S100A12", "CFP", "FCN1",
+          	"CD207" ,"CD1A","FCER1A",
+          "APOE","C1QA","C1QC",
+          "MKI67","TOP2A","TYMS",
+          	"CXCL5","IL6","IL1B",
+          	"C3","ALOX5AP","FCGBP",
+          "CXCL13",
+          "CCL17", "CCL22", "LAMP3", "FSCN1", "TUBB2B",
+          "CLEC9A", "XCR1", "DNASE1L3", "WDFY4", "BATF3",
+          "LGALS7B", "KRT18", "SOX2", "WFDC2", "CLDN3",
+          "MKI67", "TOP2A", "CDKN2C", "CENPF", "UBE2C",
+          "ISG15", "IFI27", "OAS1", "MX1", "STAT1"
+          
+          )
+
+# 分簇图
+p0 = clusterCornerAxes(object = obj_macr,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) + scale_color_manual(values = palette)
+
+
+
+
+
+
+#注释图
+p1 = clusterCornerAxes(object = obj_macr,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 5,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) +
+scale_color_manual(values = palette)
+p1
+
+p0 + p1
+
+pdf(file = "plot/macrophage/UMAP_.pdf",width = 15,height = 10)
+p0 + p1
+dev.off
+
+
+
+
+
+```
+
+## 画图：UMAP对比 细胞数量条形图 比例图
+```{r}
+umap = yaqun_paint_umap(obj = obj_macr)
+shuliangtu = yaqun_paint_tiaoxingtu(obj = obj_macr,"turned","normal")
+bili = yaqun_paint_bili(obj = obj_macr)
+
+pdf(file = "plot/macrophage/转移组和非转移组的UMAP.pdf",width = 15,height = 10)
+umap$umap_comp
+dev.off
+
+pdf(file = "plot/macrophage/6个样本的UMAP.pdf",width = 15,height = 10)
+umap$umap_sample
+dev.off
+
+
+pdf(file = "plot/macrophage/所有细胞个数统计.pdf",width = 12,height = 9)
+shuliangtu$all
+dev.off
+
+pdf(file = "plot/macrophage/转移组个数统计.pdf",width = 12,height = 9)
+shuliangtu$yes
+dev.off
+
+pdf(file = "plot/macrophage/非转移个数统计.pdf",width = 12,height = 9)
+shuliangtu$no
+dev.off
+
+pdf(file = "plot/macrophage/turned_norturned细胞比例条形图.pdf",width = 12,height = 9)
+bili$two
+dev.off
+
+pdf(file = "plot/macrophage/6样本细胞比例条形图.pdf",width = 12,height = 9)
+bili$all
+dev.off
+
+
+```
+## marker基因气泡图和热图
+```{r}
+list = heatmap_paopaotu(obj = obj_macr,file = "import/marker/T_markers.csv")
+
+
+  
+pdf(file = "plot/macrophage/marker基因气泡图.pdf",width = 15,height = 10)
+list$paopao
+dev.off
+
+pdf(file = "plot/macrophage/marker基因热图.pdf",width = 15,height = 10)
+list$heatmap
+dev.off
+
+```
+
+## 差异表达分析
+```{r}
+
+#所有的
+marco_diff = diff_we(object = obj_macr,
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category",
+                  log2FC = 0.4)
+ genes = rownames(marco_diff)[marco_diff$tag %in% c("up","down")]
+ 
+ genesUp = get_upgene(object = marco_diff)
+ genesdown = rownames(marco_diff)[marco_diff$tag %in% c("down")]
+ 
+ 
+ do_genesUp = c(
+  "MMP9",    # 基质降解
+  "SPP1",    # 肿瘤迁移
+  "CCL2",    # 免疫抑制微环境
+  "TNF",     # NF-κB炎症通路
+  "LGMN",    # 溶酶体活化
+  "RUNX3",   # EMT调控
+  "MMP14",   # 侵袭增强
+  "CXCL8",   # 血管生成
+  "PLAU",    # 纤溶酶激活
+  "GZMB",
+  "ITGA9"    # 细胞黏附
+)
+ 
+ do_genesDown =  c(
+  "CLU",       # 抑制基质降解和EMT（文献：Nat Rev Cancer, 2009）
+  "SFN",       # 阻滞细胞周期和转移（文献：Oncogene, 2016）
+  "ID1",       # 抑制EMT和干细胞特性（文献：Cell Stem Cell, 2019）
+  "ID3",       # 阻断TGF-β通路驱动的转移（文献：Cancer Res, 2018）
+  "CEBPD",     # 抑制肿瘤侵袭和血管生成（文献：J Pathol, 2020）
+  "SERPINH1",  # 调控胶原稳态抑制转移（文献：Matrix Biol, 2021）
+  "CALML3",    # 抑制钙信号介导的细胞迁移（文献：Sci Rep, 2017）
+  "CLEC10A",   # 增强抗肿瘤免疫应答（文献：Front Immunol, 2020）
+  "S100A8",    # 双刃剑（低表达时丧失炎症抑制功能）（文献：Nat Commun, 2018）
+  "FKBP5"      # 抑制HIF-1α通路和缺氧适应（文献：Cancer Lett, 2021）
+)
+ 
+ 
+ ls_hs = getMyHSplot(object = marco_diff,genes = c(do_genesDown,do_genesUp))
+ 
+ pdf("plot/macrophage/促转移重点基因的火山图.pdf",width = 10,height = 8)
+ls_hs$p1
+dev.off
+
+
+
+#umap图展示基因表达情况
+p = featureCornerAxes(object = obj_macr,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesUp,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#edf8b1",
+                  high = "#2c7fb8"
+                  )
+
+  pdf("plot/macrophage/促转移上调基因表达情况.pdf",width = 10,height = 20)
+p
+dev.off
+
+
+
+p = featureCornerAxes(object = obj_macr,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesDown,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#edf8b1",
+                  high = "#2c7fb8"
+                  )
+
+pdf("plot/macrophage/促转移下调基因表达情况.pdf",width = 10,height = 20)
+p
+dev.off
+
+
+
+#热图展示
+DoHeatmap(obj_macr, features = do_genesUp) + NoLegend()+
+  scale_fill_gradientn(colors = c("#2fa1dd", "white", "#f87669"))
+```
+
+
+#富集分析
+```{r}
+ls = do_GO_KEGG(object = marco_diff,filego = "plot/macrophage/trep_go.csv",filekegg = "plot/macrophage/trep_kegg.csv",tag = "up")
+pdf("plot/macrophage/go分析气泡图.pdf",width = 10,height = 15)
+ls$go_p2
+dev.off
+
+pdf("plot/macrophage/kegg分析气泡图.pdf",width = 10,height = 15)
+ls$kegg_p2
+dev.off
+
+```
+
+
+## 小提琴图
+```{r}
+
+ pdudu = gene_to_gene(obj = obj_macr,
+            celltypes = "t_C1_KLRB1+",
+            genes = "PKM",
+            category = "category")
+compare_OneGene(object = subset(obj_macr,celltype == "t_C1_KLRB1+"),
+                     gene = "PKM",
+                     category = "category",
+                     cellname = "t_C1_KLRB1+")
+p1 = compare_OneGene(object = subset(obj_macr,celltype == "Tprolif"),gene = "CTLA4",category = "category",cellname = "CTLA4")
+
+p2 = compare_OneGene(object = subset(obj_macr,celltype == "Tprolif"),gene = "CCL20",category = "category",cellname = "CCL20")
+p2
+
+p3 = compare_OneGene(object = subset(obj_macr,celltype == "Tprolif"),gene = "CTSH",category = "category",cellname = "CTSH")
+p3
+
+
+
+
+
+pdf(file = "plot/macrophage/Tprolif一些促转移上调基因.pdf",width = 12,height = 7)
+p1 + p2 + p3
+dev.off
+
+
+
+```
+
+
+#GSEA富集分析
+```{r}
+all_gene = rownames(marco_diff)
+all_ENTREZID = bitr(all_gene, 
+                      fromType = "SYMBOL", 
+                      toType = "ENTREZID", 
+                      OrgDb = org.Hs.eg.db)
+marco_diff_log2FC = marco_diff[which(rownames(marco_diff) %in% all_ENTREZID$SYMBOL),]
+
+logFC_dat = data.frame(SYMBOL = rownames(marco_diff_log2FC),log2FC = marco_diff_log2FC$avg_log2FC)
+
+finally_dat = merge(logFC_dat,all_ENTREZID,by = "SYMBOL")
+finally_vector = as.vector(finally_dat$log2FC)
+names(finally_vector) = as.vector(finally_dat$ENTREZID)
+finally_vector = sort(finally_vector,decreasing = T)
+
+GSEA_KEGG <- gseKEGG(finally_vector, organism = 'hsa', pvalueCutoff = 0.05,pAdjustMethod = "BH")
+
+#使用GO数据库富集到了
+GSEA_GO <- gseGO(
+  geneList = finally_vector,
+  OrgDb = org.Hs.eg.db,
+  ont = "BP",  # Biological Process
+  pvalueCutoff = 0.05
+)
+
+# 使用KEGG数据库重新运行gseKEGG,这里没有富集到
+GSEA_KEGG <- gseKEGG(
+  geneList = finally_vector,
+  organism = "hsa",
+  pvalueCutoff = 0.08 #0.25
+)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+#devtools::install_github("junjunlab/GseaVis")
+library("GseaVis")
+
+ p = dotplotGsea(data=GSEA_KEGG,topn=10,add.seg = T)
+pdf(file = "plot/macrophage/macro细胞的GSEA富集分析TOP10.pdf",width = 10,height = 10)
+ p
+dev.off
+
+
+activated_pro_metastasis <- c(
+  "NF-kappa B signaling pathway",                # 促炎症和细胞存活
+  "TNF signaling pathway",                       # 炎症微环境支持转移
+  "Human papillomavirus infection",              # HPV癌蛋白驱动转移
+  "Chemokine signaling pathway",                # 促进肿瘤细胞迁移
+  "IL-17 signaling pathway",                    # 增强炎症和血管生成
+  "Transcriptional misregulation in cancer",     # 癌基因转录激活
+  "TLR signaling pathway",                       # 激活免疫逃逸
+  "Estrogen signaling pathway"                # 激素促进肿瘤进展
+                          
+)
+
+
+inhibited_anti_metastasis <- c(
+  "Apoptosis",                                   # 凋亡抑制导致细胞存活
+  "Efferocytosis",                               # 凋亡清除障碍促进炎症
+  "RIG-I-like receptor signaling pathway"       # 抗病毒免疫抑制后允许转移
+)
+
+terms_up = GSEA_KEGG@result[GSEA_KEGG@result$Description %in% activated_pro_metastasis,]$ID
+terms_down = GSEA_KEGG@result[GSEA_KEGG@result$Description %in% inhibited_anti_metastasis,]$ID
+
+
+
+gseaNb(object=GSEA_KEGG,
+geneSetID='hsa05134',
+newGsea=T)
+
+
+
+
+
+
+
+
+
+
+
+p = gseaNb(object=GSEA_KEGG,
+geneSetID=terms_up,
+subPlot=2,
+termWidth=35,
+curveCol = palette[1:9],
+legend.position=c(0.8,0.8))
+
+
+pdf(file = "plot/macrophage/T细胞的GSEA富集分析:一些促转移的通路.pdf",width = 15,height = 12)
+ p
+dev.off
+
+
+p = gseaNb(object=GSEA_KEGG,
+geneSetID=terms_down,
+subPlot=2,
+termWidth=35,
+curveCol = palette[1:9],
+legend.position=c(0.8,0.8))
+
+
+pdf(file = "plot/macrophage/T细胞的GSEA富集分析:一些促转移的通路.pdf",width = 15,height = 12)
+ p
+dev.off
+```
+
+
+
+
+
+
+## 展示每个细胞群的top基因
+```{r}
+
+Mye_allmarkers <- FindAllMarkers(obj_macr, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+p = markerVolcano(markers = Mye_allmarkers,
+              topn = 5,
+              labelCol = palette)
+
+pdf(file = "plot/macrophage/top5基因.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+## 拟时序分析
+构建Monocle3所需数据
+expression_matrix：行是gene，列是cell的表达矩阵
+cell_metadata:对应Seurat对象的meta.data信息
+gene_metadata:基因名称信息，可用Gene symbol
+```{r}
+library(monocle3)
+library(Seurat)
+library(tidyverse)
+
+expression_matrix=obj_macr@assays$RNA$data
+cell_metadata=data.frame(obj_macr@meta.data)
+gene_annotation=data.frame(expression_matrix[,1])
+gene_annotation[,1]=row.names(gene_annotation)
+colnames(gene_annotation)=c("gene_short_name")
+##构建Monocle3 cds对象
+cds = new_cell_data_set(expression_data = expression_matrix,
+                        cell_metadata = cell_metadata,
+                        gene_metadata = gene_annotation)
+
+#预处理，相当于Seurat流程normalize过程
+#counts数据选择norm_method=c("log")
+#data数据选择norm_method=c("none")
+cds<-preprocess_cds(cds,num_dim=50,norm_method=c("none"))
+
+#去除批次效应,多个样本时可以通过此方式去除批次
+cds<-align_cds(cds,alignment_group="orig.ident")
+
+##降维，默认是"Umap"方式
+cds<-reduce_dimension(cds,cores=5)
+
+##聚类分群，分辨率调小，是为了让细胞是一群可以更好展示
+cds<-cluster_cells(cds,resolution=0.0000001)
+
+##拟时序
+cds<-learn_graph(cds)
+
+
+##选择特定细胞作为起点，代码比交互式页面方便许多，且不会出现选中自己不想要的细胞
+##这里我们假定以B细胞为起点
+myselect<-function(cds,select.classify,my_select){
+cell_ids<-which(colData(cds)[,select.classify]==my_select)
+closest_vertex<-
+cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+closest_vertex<-as.matrix(closest_vertex[colnames(cds),])
+root_pr_nodes<-
+igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+(which.max(table(closest_vertex[cell_ids,]))))]
+root_pr_nodes}
+
+cds<-order_cells(cds,root_pr_nodes=myselect(cds,select.classify='celltype',my_select="t_Tcm_LINC02446+"))
+
+
+
+
+##使用Seurat的UMAP信息，这样可以与Seurat对象的细胞分布保持一致
+#cds.embed<-cds@int_colData$reducedDims$UMAP
+#int.embed<-Embeddings(obj_mye,reduction="umap")
+#int.embed<-int.embed[rownames(cds.embed),]
+#cds@int_colData$reducedDims$UMAP<-int.embed
+
+# 安装 ggsci 包（如果未安装）
+#install.packages("ggsci")
+
+# 加载包
+library(ggsci)
+##不同细胞类型拟时序数值
+##拟时序值越高表示细胞分化程度越高，这里仅为演示，并非真实分化情况
+p = plot_cells(cds,color_cells_by="pseudotime",
+  show_trajectory_graph=T)+plot_cells(cds,
+  color_cells_by="celltype",
+  label_cell_groups=FALSE,
+  label_leaves=FALSE,
+  label_branch_points=FALSE,
+  graph_label_size=1)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/macrophage//拟时序分析.pdf",width = 10,height = 7)
+p
+dev.off
+
+genes<-c('CD19','t',"SPP1")
+genes_cds<-cds[rowData(cds)$gene_short_name%in%genes,]
+p = plot_genes_in_pseudotime(genes_cds,color_cells_by="celltype",min_expr=0.5,cell_size=1.5)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/Mye/Monocle3差异分析析.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+
+
+

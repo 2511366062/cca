@@ -1,0 +1,728 @@
+---
+title: "Mye"
+author: "lixiaokang"
+date: "2025-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. 聚类分析
+```{r}
+library(harmony)
+
+obj_t = subset(sce.all, celltype == "T cells")
+obj_t = obj_t %>% 
+    NormalizeData() %>%  
+    FindVariableFeatures() %>%  
+    ScaleData(features = rownames(.)) %>%  
+    RunPCA(pc.genes = VariableFeatures(.))  %>%
+    RunHarmony("orig.ident") %>%
+    FindNeighbors(dims = 1:15, reduction = "harmony") %>% 
+    FindClusters(resolution = 0.7) %>% 
+    RunUMAP(dims = 1:15,reduction = "harmony") #%>% 
+
+#0 - 13个簇
+
+```
+
+
+## 注释
+```{r}
+
+markers <- FindAllMarkers(obj_t, #only.pos = TRUE, 只返回正
+                               min.pct = 0.25, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+  
+    test_markers = markers[markers$avg_log2FC > 0.4 & 
+                             markers$pct.1 > 0.25  & 
+                             markers$cluster %in% c(11,12)&
+                             markers$p_val_adj < 0.01,c("avg_log2FC","cluster", "p_val_adj", "gene")]
+library(data.table)
+fwrite(test_markers, "export/test_markers_testT(11-12).csv")
+
+writeLines(paste0(as.character(0:12),","))
+
+obj_t= zhushi(object = obj_t,file = "import/zhushi/T_zhushi.txt")
+
+
+
+
+
+# 分簇图
+p0 = clusterCornerAxes(object = obj_t,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) + scale_color_manual(values = palette)
+
+
+
+
+
+
+#注释图
+p1 = clusterCornerAxes(object = obj_t,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 5,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) +
+scale_color_manual(values = palette)
+p1
+
+p0 + p1
+
+pdf(file = "plot/t/UMAP_.pdf",width = 15,height = 10)
+p0 + p1
+dev.off
+
+
+
+
+
+```
+
+## 画图：UMAP对比 细胞数量条形图 比例图
+```{r}
+umap = yaqun_paint_umap(obj = obj_t)
+
+
+
+
+```
+## marker基因气泡图和热图
+```{r}
+list = heatmap_paopaotu(obj = obj_t,file = "import/marker/T_markers.csv")
+
+pdf(file = "plot/t/marker基因气泡图.pdf",width = 15,height = 10)
+list$paopao
+dev.off
+
+pdf(file = "plot/t/marker基因热图.pdf",width = 15,height = 10)
+list$heatmap
+dev.off
+
+```
+
+## 差异表达分析
+```{r}
+
+#所有的
+t_diff = diff_we(object = obj_t,
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category",
+                  log2FC = 0.4)
+ genes = rownames(t_diff)[t_diff$tag %in% c("up","down")]
+ 
+ genesUp = get_upgene(object = t_diff)
+ genesdown = rownames(t_diff)[t_diff$tag %in% c("down")]
+ 
+ 
+ do_genesUp = c(
+  "CTLA4",    # 免疫检查点分子，抑制T细胞功能，促进免疫逃逸
+  "CXCR6",    # 趋化因子受体，驱动T细胞向转移灶迁移并重塑微环境
+  "NFKB1",    # 调控炎症和侵袭信号通路，促进肿瘤转移前生态位形成
+  "CCL20",    # 招募免疫抑制细胞（如Tregs、MDSCs），建立免疫豁免微环境
+  "CTSH",     # 组织蛋白酶H，降解细胞外基质（ECM），增强肿瘤细胞侵袭能力
+  "VMP1",     # 自噬相关蛋白，支持转移过程中肿瘤细胞的代谢适应和存活
+  "RUNX1",    # 转录因子，调控EMT（上皮-间质转化）和转移相关基因表达
+  "FURIN" ,    # 蛋白酶，激活促转移分子（如MMPs、TGF-β），驱动侵袭性
+  "GZMB",
+  "SPP1"
+)
+ 
+ do_genesDown =  c(
+  "CD3E",    # T细胞受体核心组分，下调导致T细胞功能丧失
+  "IL7R",    # T细胞存活信号受体，下调削弱抗肿瘤免疫
+  "CXCR3",   # 趋化因子受体，下调减少T细胞肿瘤浸润
+  "CD9",     # 四跨膜蛋白，抑制肿瘤侵袭转移
+  "CD63",    # 溶酶体膜蛋白，调控细胞迁移，下调促进侵袭
+  "MGP",     # 基质Gla蛋白，抑制血管异常重塑
+  "APOE"     # 调控脂代谢，影响肿瘤微环境稳态
+)
+ 
+ 
+ ls_hs = getMyHSplot(object = t_diff,genes = c(do_genesDown,do_genesUp))
+ 
+ pdf("plot/t/促转移重点基因的火山图.pdf",width = 10,height = 8)
+ls_hs$p1
+dev.off
+
+
+
+#umap图展示基因表达情况
+p = featureCornerAxes(object = obj_t,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesUp,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#edf8b1",
+                  high = "#2c7fb8"
+                  )
+
+  pdf("plot/t/促转移上调基因表达情况.pdf",width = 10,height = 20)
+p
+dev.off
+
+
+
+p = featureCornerAxes(object = obj_t,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesDown,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#edf8b1",
+                  high = "#2c7fb8"
+                  )
+
+pdf("plot/t/促转移下调基因表达情况.pdf",width = 10,height = 20)
+p
+dev.off
+
+
+
+#热图展示
+DoHeatmap(obj_t, features = do_genesUp) + NoLegend()+
+  scale_fill_gradientn(colors = c("#2fa1dd", "white", "#f87669"))
+```
+
+
+#富集分析
+```{r}
+ls = do_GO_KEGG(object = t_diff,filego = "plot/t/trep_go.csv",filekegg = "plot/t/trep_kegg.csv",tag = "up")
+pdf("plot/t/go分析气泡图.pdf",width = 10,height = 15)
+ls$go_p2
+dev.off
+
+pdf("plot/t/kegg分析气泡图.pdf",width = 10,height = 15)
+ls$kegg_p2
+dev.off
+
+```
+
+
+## test
+```{r}
+
+SEMA4C = compare_OneGene(object = subset(obj_t,celltype == "Treg"),
+                     gene = "SEMA4D",
+                     category = "category",
+                     cellname = "SEMA4D")
+  pdf(paste0("plot/temp/SEMA4D", ".pdf"),width = 8,height = 7)
+  p = SEMA4C
+  print(p)
+  dev.off()
+  
+  
+  
+SEMA4C = compare_OneGene(object = obj_t,
+                     gene = "SEMA4D",
+                     category = "category",
+                     cellname = "SEMA4D")
+  pdf(paste0("plot/temp/SEMA4D", ".pdf"),width = 8,height = 7)
+  p = SEMA4C
+  print(p)
+  dev.off()
+```
+
+
+
+## 小提琴图
+```{r}
+
+
+
+tlist = two_group_genes_viloin_all(obj = obj_cafs,color = palette,genes = do_genesUp)
+
+tlist_down = two_group_genes_viloin_all(obj = obj_cafs,color = palette,genes = do_genesDown)
+
+for (i in 1 : length(tlist)) {
+  cellname = names(tlist)[i]
+  pdf(paste0("plot/CAFs/上调基因在亚群中的对比/p", i, ".pdf"),width = 26,height = 7)
+  p = tlist[[i]]
+  print(p)
+  dev.off()
+  
+}
+
+for (i in 1 : length(tlist_down)) {
+  cellname = names(tlist_down)[i]
+  pdf(paste0("plot/CAFs/下调基因在亚群中的对比/p", i, ".pdf"),width = 23,height = 7)
+  p = tlist_down[[i]]
+  print(p)
+  dev.off()
+  
+}
+
+
+
+
+
+SEMA4C = compare_OneGene(object = subset(obj_cafs,celltype == "Treg"),
+                     gene = "SEMA4D",
+                     category = "category",
+                     cellname = "SEMA4D")
+
+
+
+
+
+
+
+
+ pdudu = gene_to_gene(obj = obj_cafs,
+            celltypes = "myCAFs",
+            genes = "THBS",
+            category = "category")
+SEMA4C = compare_OneGene(object = subset(obj_cafs,celltype == "myCAFs"),
+                     gene = "SEMA4C",
+                     category = "category",
+                     cellname = "SEMA4C")
+
+
+SEMA4C = compare_OneGene(object = subset(obj_cafs,celltype == "mCAFs"),
+                     gene = "SEMA4D",
+                     category = "category",
+                     cellname = "SEMA4D")
+
+genes = c("SEMA4D","SEMA4C","SEMA4A","THBS1","THBS2")
+cellnames = c("iCAFs","CAFs_CXCL13+","eCAFs","imCAFs","invCAFs")
+
+
+cellname = "invCAFs"
+gene = "THBS2"
+cellobj =  subset(obj_cafs,celltype == cellname)
+
+    p = compare_OneGene(object = cellobj,
+                     gene = gene,
+                     category = "category",
+                     cellname = gene)
+    
+    pname = paste0("plot/newfig/箱线图_",cellname,"_",gene,".pdf")
+    
+    pdf(file = pname,width = 8,height = 6)
+      print(p)
+    dev.off()
+
+    
+cellnames = c("mCAFs","myCAFs","pCAFs")
+genes = c("SEMA4D","SEMA4C","SEMA4A","THBS1","THBS2")
+
+cellname = "myCAFs"
+markercolor = c("#edf8b1","#2c7fb8")
+temp = subset(obj_cafs,celltype == cellname)
+
+
+
+p = markerDot(temp,genes,colors = markercolor,id = "category")
+p
+
+
+
+myggsave(file = "plot/newfig/fig_5_D图.pdf", plot = p, dpi = 600, width = 15,height = 5)
+
+
+gene
+
+
+plist = list()
+
+
+
+
+for(cellname in cellnames){
+  
+  cellobj =  subset(obj_cafs,celltype == cellname)
+  
+  for(gene in genes){
+    
+    p = compare_OneGene(object = cellobj,
+                     gene = gene,
+                     category = "category",
+                     cellname = gene)
+    
+    pname = paste0("plot/newfig/箱线图_",cellname,"_",gene,".pdf")
+    
+    pdf(file = pname,width = 8,height = 6)
+      print(p)
+    dev.off()
+    
+  }
+  
+}
+
+
+
+
+
+
+p1 = compare_OneGene(object = subset(obj_t,celltype == "Tprolif"),gene = "CTLA4",category = "category",cellname = "CTLA4")
+
+p2 = compare_OneGene(object = subset(obj_t,celltype == "Tprolif"),gene = "CCL20",category = "category",cellname = "CCL20")
+p2
+
+p3 = compare_OneGene(object = subset(obj_t,celltype == "Tprolif"),gene = "CTSH",category = "category",cellname = "CTSH")
+p3
+
+
+
+
+
+pdf(file = "plot/t/Tprolif一些促转移上调基因.pdf",width = 12,height = 7)
+p1 + p2 + p3
+dev.off
+
+
+
+```
+
+
+#GSEA富集分析
+```{r}
+all_gene = rownames(t_diff)
+all_ENTREZID = bitr(all_gene, 
+                      fromType = "SYMBOL", 
+                      toType = "ENTREZID", 
+                      OrgDb = org.Hs.eg.db)
+t_diff_log2FC = t_diff[which(rownames(t_diff) %in% all_ENTREZID$SYMBOL),]
+
+logFC_dat = data.frame(SYMBOL = rownames(t_diff_log2FC),log2FC = t_diff_log2FC$avg_log2FC)
+
+finally_dat = merge(logFC_dat,all_ENTREZID,by = "SYMBOL")
+finally_vector = as.vector(finally_dat$log2FC)
+names(finally_vector) = as.vector(finally_dat$ENTREZID)
+finally_vector = sort(finally_vector,decreasing = T)
+
+GSEA_KEGG <- gseKEGG(finally_vector, organism = 'hsa', pvalueCutoff = 0.05,pAdjustMethod = "BH")
+
+#使用GO数据库富集到了
+GSEA_GO <- gseGO(
+  geneList = finally_vector,
+  OrgDb = org.Hs.eg.db,
+  ont = "BP",  # Biological Process
+  pvalueCutoff = 0.05
+)
+
+# 使用KEGG数据库重新运行gseKEGG,这里没有富集到
+GSEA_KEGG <- gseKEGG(
+  geneList = finally_vector,
+  organism = "hsa",
+  pvalueCutoff = 0.08 #0.25
+)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+#devtools::install_github("junjunlab/GseaVis")
+library("GseaVis")
+
+ p = dotplotGsea(data=GSEA_KEGG,topn=10,add.seg = T)
+pdf(file = "plot/t/T细胞的GSEA富集分析.pdf",width = 10,height = 10)
+ p
+dev.off
+
+
+key_metastasis_pathways <- c(
+  "MAPK signaling pathway",              # 调控细胞迁移、侵袭和EMT
+  "NF-kappa B signaling pathway",        # 驱动炎症反应和抗凋亡，促进转移微环境
+  "HIF-1 signaling pathway",             # 缺氧适应，增强血管生成和细胞侵袭
+  "TNF signaling pathway",               # 激活促炎因子，促进基质重塑和免疫逃逸
+  "IL-17 signaling pathway",             # 介导慢性炎症，加速肿瘤细胞扩散
+  "Transcriptional misregulation in cancer", # 致癌转录因子（如MYC、STAT3）驱动转移基因表达
+  
+  "Viral carcinogenesis"                 # 病毒蛋白（如HPV E6/E7）破坏抑癌基因，间接促进转移
+)
+
+terms = GSEA_KEGG@result[GSEA_KEGG@result$Description %in% key_metastasis_pathways,]$ID
+
+gseaNb(object=GSEA_KEGG,
+geneSetID='hsa05134',
+newGsea=T)
+
+
+
+
+
+
+
+
+
+
+
+p = gseaNb(object=GSEA_KEGG,
+geneSetID=terms,
+subPlot=2,
+termWidth=35,
+curveCol = palette[1:9],
+legend.position=c(0.8,0.8))
+
+
+pdf(file = "plot/t/T细胞的GSEA富集分析:一些促转移的通路.pdf",width = 15,height = 12)
+ p
+dev.off
+```
+
+
+
+
+
+
+## 展示每个细胞群的top基因
+```{r}
+
+Mye_allmarkers <- FindAllMarkers(obj_t, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+p = markerVolcano(markers = Mye_allmarkers,
+              topn = 5,
+              labelCol = palette)
+
+pdf(file = "plot/t/top5基因.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+## 拟时序分析
+构建Monocle3所需数据
+expression_matrix：行是gene，列是cell的表达矩阵
+cell_metadata:对应Seurat对象的meta.data信息
+gene_metadata:基因名称信息，可用Gene symbol
+```{r}
+library(monocle3)
+library(Seurat)
+library(tidyverse)
+
+expression_matrix=obj_t@assays$RNA$data
+cell_metadata=data.frame(obj_t@meta.data)
+gene_annotation=data.frame(expression_matrix[,1])
+gene_annotation[,1]=row.names(gene_annotation)
+colnames(gene_annotation)=c("gene_short_name")
+##构建Monocle3 cds对象
+cds = new_cell_data_set(expression_data = expression_matrix,
+                        cell_metadata = cell_metadata,
+                        gene_metadata = gene_annotation)
+
+#预处理，相当于Seurat流程normalize过程
+#counts数据选择norm_method=c("log")
+#data数据选择norm_method=c("none")
+cds<-preprocess_cds(cds,num_dim=50,norm_method=c("none"))
+
+#去除批次效应,多个样本时可以通过此方式去除批次
+cds<-align_cds(cds,alignment_group="orig.ident")
+
+##降维，默认是"Umap"方式
+cds<-reduce_dimension(cds,cores=5)
+
+##聚类分群，分辨率调小，是为了让细胞是一群可以更好展示
+cds<-cluster_cells(cds,resolution=0.0000001)
+
+##拟时序
+cds<-learn_graph(cds)
+
+
+##选择特定细胞作为起点，代码比交互式页面方便许多，且不会出现选中自己不想要的细胞
+##这里我们假定以B细胞为起点
+myselect<-function(cds,select.classify,my_select){
+cell_ids<-which(colData(cds)[,select.classify]==my_select)
+closest_vertex<-
+cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+closest_vertex<-as.matrix(closest_vertex[colnames(cds),])
+root_pr_nodes<-
+igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+(which.max(table(closest_vertex[cell_ids,]))))]
+root_pr_nodes}
+
+cds<-order_cells(cds,root_pr_nodes=myselect(cds,select.classify='celltype',my_select="t_Tcm_LINC02446+"))
+
+
+
+
+##使用Seurat的UMAP信息，这样可以与Seurat对象的细胞分布保持一致
+#cds.embed<-cds@int_colData$reducedDims$UMAP
+#int.embed<-Embeddings(obj_mye,reduction="umap")
+#int.embed<-int.embed[rownames(cds.embed),]
+#cds@int_colData$reducedDims$UMAP<-int.embed
+
+# 安装 ggsci 包（如果未安装）
+#install.packages("ggsci")
+
+# 加载包
+library(ggsci)
+##不同细胞类型拟时序数值
+##拟时序值越高表示细胞分化程度越高，这里仅为演示，并非真实分化情况
+p = plot_cells(cds,color_cells_by="pseudotime",
+  show_trajectory_graph=T)+plot_cells(cds,
+  color_cells_by="celltype",
+  label_cell_groups=FALSE,
+  label_leaves=FALSE,
+  label_branch_points=FALSE,
+  graph_label_size=1)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/t//拟时序分析.pdf",width = 10,height = 7)
+p
+dev.off
+
+genes<-c('CD19','t',"SPP1")
+genes_cds<-cds[rowData(cds)$gene_short_name%in%genes,]
+p = plot_genes_in_pseudotime(genes_cds,color_cells_by="celltype",min_expr=0.5,cell_size=1.5)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/Mye/Monocle3差异分析析.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+```{r}
+Sys.getenv("R_HOME")
+```
+
+
+
+```{r}
+library(Seurat)
+load(file = "Rdata/dudu.Rdata")
+
+
+mydata =read.csv("seruat/mat.csv")
+meta <- read.table("seruat/metadata.tsv",sep="\t",header=T,row.names=1)
+umap<- read.table("seruat/position_X_umap.tsv",sep="\t",header=T,row.names=1)
+
+rownames(mydata)=mydata[,1]
+mydata=mydata[,-1]
+mat <- Matrix(t (mydata), sparse = TRUE)
+exp=t(mydata)
+
+
+obj <- CreateSeuratObject(exp, project ='cancer', assay = 'RNA', meta.data = meta)
+
+obj <- SetAssayData(
+    object = obj,
+    slot   = "data",
+    new.data = GetAssayData(obj, assay = "RNA", slot = "counts"),
+    assay  = "RNA"
+ )
+
+```
+```{r}
+
+obj$category = obj$group
+do_genesUp = c(       
+    "SPP1",   # Osteopontin
+    'GZMB',
+    "GPNMB",  # Osteoactivin
+    "ALCAM",  # CD166
+    "IL1B",   # Interleukin-1β
+    "FN1",    # Fibronectin
+    "CCL3",   # MIP-1α
+    "ADGRE5", # CD97
+    "TREM2",
+    "MSR1"   # Scavenger receptor
+    )
+
+do_genesDown = c(
+  "RUNX3",   # 肿瘤抑制；缺失/下调 → 侵袭/转移↑
+    "SYK",     # 抑制迁移/EMT；下调 → 转移↑（乳腺等）
+    "ARRDC3",  # 转移抑制因子；下调 → 迁移/侵袭↑
+    "EPB41L3", # DAL-1，细胞骨架/黏附相关抑癌；下调 → 转移↑
+    "DACH1",   # 转录抑制因子；下调 → EMT/转移↑
+    "PHLPP1",  # 去磷酸化AKT等；下调 → AKT活化/转移↑
+    "RBM47",   # 转录后抑癌；下调 → 转移↑
+    "CPEB2",   # 抑制HIF-1α/EMT；下调 → 侵袭/转移↑
+    "G0S2",    # 脂代谢/凋亡调控抑癌；下调 → 迁移↑
+    "THBS1",   # 抗血管生成/微环境约束；下调 → 转移生态位形成↑
+    "ABCA1",   # 胆固醇外排/膜筏信号抑制；下调 → 迁移信号↑
+    "EMILIN2", # ECM抑癌/抗血管生成；下调 → 侵袭/血管生成↑
+    "CSTA"     # 胱天蛋白酶抑制；下调 → 蛋白酶活性↑/侵袭↑
+)
+
+colorsForDataType = paletteer_d("LaCroixColoR::Berry")
+umapColor <- colorRampPalette(colorsForDataType)(length(unique(obj$celltype)))
+
+
+plist = timeAllPlot(obj = subset(obj,category == "BC"),do_genesUp = do_genesUp,do_genesDown = do_genesDown,startGene = "C7_Macro_InflamMono" )
+outTimeAllPlot(plist = plist,do_genesUp = do_genesUp,do_genesDown = do_genesDown,mydirname = "Macro/BC")
+
+plist = timeAllPlot(obj = subset(obj,category == "KC"),do_genesUp = do_genesUp,do_genesDown = do_genesDown,startGene = "C7_Macro_InflamMono" )
+outTimeAllPlot(plist = plist,do_genesUp = do_genesUp,do_genesDown = do_genesDown,mydirname = "Macro/KC")
+
+plist = timeAllPlot(obj = subset(obj,category == "CC"),do_genesUp = do_genesUp,do_genesDown = do_genesDown,startGene = "C7_Macro_InflamMono" )
+outTimeAllPlot(plist = plist,do_genesUp = do_genesUp,do_genesDown = do_genesDown,mydirname = "Macro/CC")
+
+
+plist = timeAllPlot(obj = subset(obj,category == "LC"),do_genesUp = do_genesUp,do_genesDown = do_genesDown,startGene = "C7_Macro_InflamMono" )
+outTimeAllPlot(plist = plist,do_genesUp = do_genesUp,do_genesDown = do_genesDown,mydirname = "Macro/LC")
+
+plist = timeAllPlot(obj = subset(obj,category == "ctrl"),do_genesUp = do_genesUp,do_genesDown = do_genesDown,startGene = "C7_Macro_InflamMono" )
+outTimeAllPlot(plist = plist,do_genesUp = do_genesUp,do_genesDown = do_genesDown,mydirname = "Macro/ctrl")
+
+```
+
+```{r}
+
+ COL4A1 COL4A2 FN1 THBS1 SEMA4
+
+genes = c("COL4A1","COL4A2" ,"FN1", "THBS1","THBS4","SEMA4A","SEMA4B","SEMA4C","SEMA4D")
+
+for (gene in genes){
+  
+  p = compare_OneGene(object =obj_cafs,gene = gene,category = "category",cellname = gene)
+   ggsave(file = paste0("cafs/_",gene,".pdf"), plot = p, dpi = 500, width = 7, height = 5)
+  
+}
+
+ 
+load("Rdata/dudu.Rdata")
+
+p1 = compare_OneGene(object =obj_cafs,gene = "COL4A1",category = "category",cellname = "COL4A1")
+p2 = compare_OneGene(object =obj_cafs,gene = "COL4A2",category = "category",cellname = "COL4A2")
+p3 = compare_OneGene(object =obj_cafs,gene = "FN1",category = "category",cellname = "FN1")
+p4 = compare_OneGene(object =obj_cafs,gene = "THBS1",category = "category",cellname = "THBS1")
+p5 = compare_OneGene(object =obj_cafs,gene = "SEMA4",category = "category",cellname = "SEMA4")
+
+```
+
+
+
+```{r}
+def huage_adata_info(adata):
+    mat=pd.DataFrame(data=adata.X.todense(),index=adata.obs_names,columns=adata.var_names)
+    mat.to_csv("./seruat/mat.csv")
+    meta=pd.DataFrame(data=adata.obs)
+    meta.to_csv('./seruat/metadata.tsv',sep="\t")
+
+    umap=pd.DataFrame(data=adata.obsm["X_umap"],index=adata.obs_names,columns=['umap_1','umap_2'])
+    umap.to_csv('./seruat/position_'+"X_umap"+'.tsv',sep="\t")
+
+
+```
+
+
+
+
+
+
+

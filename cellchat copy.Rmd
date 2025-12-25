@@ -1,0 +1,347 @@
+---
+title: "cellchat"
+output: html_document
+date: "2025-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#安装、加载包
+```{r}
+# 安装 CellChat
+#remotes::install_github("sqjin/CellChat")
+library(CellChat)
+library(Seurat)
+library(patchwork)
+```
+
+# 创建 CellChat 对象
+```{r}
+seob_list <- SplitObject(obj, split.by = "group")
+
+# 创建 CellChat 对象
+cellchat_BC <- createCellChat(object = seob_list$BC, group.by = "celltype")
+
+cellchat_CC <- createCellChat(object = seob_list$CC, group.by = "celltype")
+cellchat_KC <- createCellChat(object = seob_list$KC, group.by = "celltype")
+cellchat_LC <- createCellChat(object = seob_list$LC, group.by = "celltype")
+cellchat_ctrl <- createCellChat(object = seob_list$ctrl, group.by = "celltype")
+
+```
+
+
+#设置数据库
+```{r}
+
+CellChatDB <- CellChatDB.human  # 使用人类配体-受体数据库
+showDatabaseCategory(CellChatDB)
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling", key = "annotation") 
+# 设置配体-受体数据库
+cellchat_BC@DB <- CellChatDB
+cellchat_KC@DB <- CellChatDB
+cellchat_CC@DB <- CellChatDB
+cellchat_LC@DB <- CellChatDB
+cellchat_ctrl@DB <- CellChatDB
+```
+
+
+# 提取数据
+```{r}
+cellchat_BC <- subsetData(cellchat_BC)  # 预处理 ctrl 样本
+cellchat_KC <- subsetData(cellchat_KC)  # 预处理 stim 样本
+cellchat_CC <- subsetData(cellchat_CC)  
+cellchat_LC <- subsetData(cellchat_LC)  
+cellchat_ctrl <- subsetData(cellchat_ctrl) 
+
+```
+
+# 计算通讯信号
+
+```{r}
+
+cellchat_BC <- identifyOverExpressedGenes(cellchat_BC)
+cellchat_BC <- identifyOverExpressedInteractions(cellchat_BC)
+cellchat_BC <- computeCommunProb(cellchat_BC)
+
+cellchat_KC <- identifyOverExpressedGenes(cellchat_KC)
+cellchat_KC <- identifyOverExpressedInteractions(cellchat_KC)
+cellchat_KC <- computeCommunProb(cellchat_KC)
+
+cellchat_CC <- identifyOverExpressedGenes(cellchat_CC)
+cellchat_CC <- identifyOverExpressedInteractions(cellchat_CC)
+cellchat_CC <- computeCommunProb(cellchat_CC)
+
+cellchat_LC <- identifyOverExpressedGenes(cellchat_LC)
+cellchat_LC <- identifyOverExpressedInteractions(cellchat_LC)
+cellchat_LC <- computeCommunProb(cellchat_LC)
+
+cellchat_ctrl <- identifyOverExpressedGenes(cellchat_ctrl)
+cellchat_ctrl <- identifyOverExpressedInteractions(cellchat_ctrl)
+cellchat_ctrl <- computeCommunProb(cellchat_ctrl)
+
+
+# 过滤掉低置信度的通讯信号
+cellchat_BC <- filterCommunication(cellchat_BC, min.cells = 10)
+cellchat_KC <- filterCommunication(cellchat_KC, min.cells = 10)
+cellchat_CC <- filterCommunication(cellchat_CC, min.cells = 10)
+cellchat_LC <- filterCommunication(cellchat_LC, min.cells = 10)
+cellchat_ctrl <- filterCommunication(cellchat_ctrl, min.cells = 10)
+
+# 计算网络中心度
+cellchat_BC <- netAnalysis_computeCentrality(cellchat_BC, slot.name = "net")
+cellchat_KC <- netAnalysis_computeCentrality(cellchat_KC, slot.name = "net")
+cellchat_CC <- netAnalysis_computeCentrality(cellchat_CC, slot.name = "net")
+cellchat_LC <- netAnalysis_computeCentrality(cellchat_LC, slot.name = "net")
+cellchat_ctrl <- netAnalysis_computeCentrality(cellchat_ctrl, slot.name = "net")
+
+# 转为数据框查看
+cellchat_BC_net <- subsetCommunication(cellchat_BC, slot.name = "net")
+cellchat_KC_net <- subsetCommunication(cellchat_KC, slot.name = "net")
+cellchat_CC_net <- subsetCommunication(cellchat_CC, slot.name = "net")
+cellchat_LC_net <- subsetCommunication(cellchat_LC, slot.name = "net")
+cellchat_ctrl_net <- subsetCommunication(cellchat_ctrl, slot.name = "net")
+
+head(cellchat_BC_net)
+```
+
+字段解释：
+source: 源细胞类型，即产生信号分子（配体）的细胞。
+
+target: 目标细胞类型，即表达配体相应受体的细胞。
+
+ligand: 配体名称，由源细胞分泌或表达的信号分子。
+
+receptor: 受体名称，位于目标细胞表面，与配体结合来接收信号。
+
+prob: 通讯概率，表示这种配体-受体相互作用在细胞群体中的存在或活跃程度。
+
+pval: 相关统计分析的 p 值，用于量化该配体-受体互作的统计显著性。这里显示为0可能表示非常显著。
+
+interaction_name: 配体和受体的组合名称，通常以_连接。
+
+interaction_name_2: 另一种格式的配体-受体互作名称，通常以-连接。
+
+pathway_name: 相关信号通路的名称，显示该配体-受体对如何参与特定的生物过程或信号通路。
+
+annotation: 对通讯类型的注解，如”Secreted Signaling”表明这是一种分泌型信号传递方式。
+
+evidence: 提供该配体-受体互作信息的来源，如”KEGG: hsa04060”，表示这些信息来自KEGG数据库，具体是人类细胞信号通路图的一个部分。
+
+
+
+#推断通讯网络
+
+```{r}
+
+ #聚类细胞通讯网络
+cellchat_BC <- computeCommunProbPathway(cellchat_BC)
+cellchat_BC <- aggregateNet(cellchat_BC)
+
+cellchat_KC <- computeCommunProbPathway(cellchat_KC)
+cellchat_KC <- aggregateNet(cellchat_KC)
+
+cellchat_CC <- computeCommunProbPathway(cellchat_CC)
+cellchat_CC <- aggregateNet(cellchat_CC)
+
+cellchat_LC <- computeCommunProbPathway(cellchat_LC)
+cellchat_LC <- aggregateNet(cellchat_LC)
+
+cellchat_ctrl <- computeCommunProbPathway(cellchat_ctrl)
+cellchat_ctrl <- aggregateNet(cellchat_ctrl)
+
+# count：条数，weight：强度
+cellchat_BC_netP <- subsetCommunication(cellchat_BC, slot.name = "netP")
+cellchat_KC_netP <- subsetCommunication(cellchat_KC, slot.name = "netP")
+cellchat_CC_netP <- subsetCommunication(cellchat_CC, slot.name = "netP")
+cellchat_LC_netP <- subsetCommunication(cellchat_LC, slot.name = "netP")
+cellchat_ctrl_netP <- subsetCommunication(cellchat_ctrl, slot.name = "netP")
+
+#中心性度量：评估细胞在通讯网络中的角色
+# 计算网络中心度
+cellchat_BC <- netAnalysis_computeCentrality(cellchat_BC, slot.name = "netP")
+cellchat_KC <- netAnalysis_computeCentrality(cellchat_KC, slot.name = "netP")
+cellchat_CC <- netAnalysis_computeCentrality(cellchat_CC, slot.name = "netP")
+cellchat_LC <- netAnalysis_computeCentrality(cellchat_LC, slot.name = "netP")
+cellchat_ctrl <- netAnalysis_computeCentrality(cellchat_ctrl, slot.name = "netP")
+
+```
+
+
+
+# 单独的可视化
+
+```{r}
+
+ duduDir =  function(file){
+   
+   
+   dirname <- sub("/[^/]+$", "", file)
+  print(dirname)
+  if (!dir.exists(dirname)) {
+    dir.create(dirname, recursive = TRUE)
+  }
+  
+ }
+
+netVisual_circle(cellchat_BC@net$weight, edge.width.max = 20)
+netVisual_circle(cellchat_CH@net$weight, edge.width.max = 20)
+
+netVisual_heatmap(cellchat_C, measure = "weight",color.heatmap = c("#26dee4","#f51e14"))
+netVisual_heatmap(cellchat_CH, measure = "weight",color.heatmap = c("#26dee4","#f51e14"))
+
+
+
+duduDir("fig/cellchat/5个分组总体通信/ctrl_圈圈.pdf")
+pdf(file  = "fig/cellchat/5个分组总体通信/ctrl_圈圈.pdf",height = 6,width = 6)
+
+netVisual_circle(cellchat_ctrl@net$weight, edge.width.max = 20)
+
+dev.off()
+
+
+pdf(file  = "fig/cellchat/5个分组总体通信/ctrl_热图.pdf",height = 6,width = 8)
+
+netVisual_heatmap(cellchat_ctrl, measure = "weight",color.heatmap = c("#26dee4","#f51e14"))
+
+dev.off()
+
+
+
+
+
+```
+
+
+#合并可视化
+```{r}
+
+object.list <- list(normal = cellchat_normal, turned = cellchat_turned)
+cellchat <- mergeCellChat(object.list, add.names = c("normal", "turned"))
+
+
+
+
+pdf(file = "plot/cellchat/turned和turned热图-越红turned通讯比normal越强.pdf",width = 9,height = 7)
+netVisual_heatmap(cellchat, 
+                  comparison = c(1,2), # 2 - 1  （tuerned  - normal）
+                  measure = "weight",
+                 c("#26dee4","#f51e14") )
+dev.off
+```
+
+#研究具体通路分析
+```{r}
+
+
+
+#查找到相关促转移的通路
+need_pathways =  c(
+  "MHC-I",       # 抗原呈递，免疫细胞激活
+  "GALECTIN",    # 炎症调节，屏障功能
+  "PARs",        # 凝血系统激活，内皮功能障碍
+  "CDH1",        # 上皮屏障完整性(E-cadherin)
+  "JAM",         # 紧密连接功能，屏障完整性
+  "ICAM",        # 白细胞粘附和迁移
+  "CCL",         # 趋化因子，免疫细胞招募
+  "MIF",         # 促炎细胞因子，炎症放大
+  "PECAM1",      # 白细胞跨内皮迁移
+  "CD45",        # 白细胞活化和通讯
+  "CD86",        # 抗原呈递细胞共刺激
+  "OCLN",        # 紧密连接核心蛋白，屏障功能
+  "ITGAL-ITGB2", # 白细胞粘附(整合素LFA-1)
+  "FGF",         # 组织修复和再生
+  "APP",         # 细胞应激反应
+  "ALCAM",       # 白细胞粘附和迁移
+  "CD6",         # T细胞活化和迁移
+  "CD48",        # 免疫细胞激活
+  "EPHA",        # 细胞迁移和屏障调节
+  "CDH"          # 钙黏蛋白家族(细胞粘附)
+)
+#“circle”, “hierarchy”, “chord”, “spatial”
+bcp = cellchat_BC@netP[["pathways"]]
+kcp = cellchat_KC@netP[["pathways"]]
+ccp = cellchat_CC@netP[["pathways"]]
+lcp = cellchat_LC@netP[["pathways"]]
+ctrlp = cellchat_ctrl@netP[["pathways"]]
+
+
+
+namecellchats = c("cellchat_BC","cellchat_KC","cellchat_CC","cellchat_LC","cellchat_ctrl")
+
+pathlist = list(bcp,kcp,ccp,lcp,ctrlp)
+names(pathlist) = namecellchats
+
+
+cellchatList = list(cellchat_BC,cellchat_KC,cellchat_CC,cellchat_LC,cellchat_ctrl)
+names(cellchatList) = namecellchats
+
+
+for (namecellchat in namecellchats) {
+  
+  cellchat = cellchatList[[namecellchat]]
+  pathways = pathlist[[namecellchat]]
+  dir = paste0("fig/cellchat/",namecellchat)
+  duduDir(dir)
+  
+  print(paste0("namecellchat = ",namecellchat))
+  print(paste0("pathways = ",pathways))
+  for (pathway in pathways) {
+  
+  print(paste0("pathway = ",pathway))
+    
+  file_p1 =  paste0(dir,"/圈圈图/",pathway,".pdf")
+  file_p2 =  paste0(dir,"/贡献度图/",pathway,".pdf")
+  file_p3 =  paste0(dir,"/热图/",pathway,".pdf")
+  file_p4 =  paste0(dir,"/发送方接收方度量图/",pathway,".pdf")
+  
+  duduDir(file_p1)
+  duduDir(file_p2)
+  duduDir(file_p3)
+  duduDir(file_p4)
+  
+  
+  print(paste0("file_p1 = ",file_p1))
+  pdf(file = file_p1,width = 8,height = 8)
+  p1 = netVisual_aggregate(cellchat, signaling = pathway, layout = "circle")
+  print(p1)
+  dev.off()
+
+  #配体-受体贡献
+  print(paste0("file_p2 = ",file_p2))
+  pdf(file = file_p2,width = 15,height = 8)
+  p2 = netAnalysis_contribution(cellchat, signaling = pathway)
+  print(p2)
+  dev.off()
+
+  #热图展示
+  print(paste0("file_p3 = ",file_p3))
+  pdf(file = file_p3,width = 5,height = 4)
+  p3 = netVisual_heatmap(cellchat, color.heatmap = "OrRd",signaling = pathway)
+  print(p3)
+  dev.off()
+  
+  print(paste0("file_p4 = ",file_p4))
+  #信号发送者、信号接收者的度量
+  pdf(file = file_p4,width = 6,height = 4)
+  p4 = netAnalysis_signalingRole_scatter(cellchat, signaling = pathway )
+  print(p4)
+  dev.off()
+  
+  
+  
+}
+  
+  
+  
+}
+
+
+
+
+
+```
+
+

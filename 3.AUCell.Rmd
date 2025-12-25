@@ -1,0 +1,145 @@
+---
+title: "AUCell"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F)
+```
+
+#### 1.基因
+
+```{r}
+rm(list = ls())
+load("g.Rdata")
+```
+
+#### 2.AUCell
+
+
+
+seu.obj是注释得出的对象，allmarkers是findallmarkers得到的数据框。
+
+```{r}
+
+#可以先看基因集在每个细胞类型中表达，预估评分，根据图片可以知道大概那些分数最高
+library(Seurat)
+library(tidyverse)
+load("Rdata/seu.obj.Rdata")
+DotPlot(seu.obj,features = g,cols = "RdYlBu")+RotatedAxis()
+```
+
+AUCell用于计算每个细胞中特定基因集的活性程度。用上面的gi作为基因集来计算。
+
+AUCell的三个步骤:
+
+Build the rankings：矩阵中的每个细胞里，给基因进行排序。
+Calculate the Area Under the Curve (AUC)：计算每个细胞的AUC值
+Set the assignment thresholds：计算活性区分的阈值
+
+```{r}
+library(GSEABase)
+
+#每个细胞的基因表达矩阵 + 目标基因集（如干细胞相关基因）
+geneSets <- GeneSet(g, setName="pyroptosis")#铁死亡基因集，Aucell需要这种格式
+geneSets
+#BiocManager::install("AUCell")
+library(AUCell)
+#1.准备矩阵
+exprMatrix = seu.obj@assays$RNA@layers$data
+rownames(exprMatrix) = Features(seu.obj)
+colnames(exprMatrix) = Cells(seu.obj)
+#开始打分
+cells_rankings <- AUCell_buildRankings(exprMatrix)#排序
+cells_AUC <- AUCell_calcAUC(geneSets, cells_rankings)#计算AUC值,评分
+set.seed(333)
+cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) #探索阈值，根据评分阈值分成分高的组分低的组 
+auc_thr = cells_assignment$pyroptosis$aucThr$selected
+auc_thr#阈值
+```
+
+#### 3.FeaturePlot可视化
+
+标准版：
+
+```{r}
+library(Seurat)
+seu.obj$auc_score = as.numeric(getAUC(cells_AUC))#添加一列 评分组
+seu.obj$auc_group = ifelse(seu.obj$auc_score>auc_thr,"high_pyroptosis","low_pyroptosis") #添加一列，评分高的，评分低的
+```
+
+画图：
+
+```{r}
+
+FeaturePlot(seu.obj,features = "auc_score")#默认的
+
+
+dat<- data.frame(seu.obj@meta.data, 
+                seu.obj@reductions$tsne@cell.embeddings,#tsne的坐标
+                seurat_annotation = seu.obj@active.ident)#按顺序的
+class_avg <- dat %>%
+  group_by(seurat_annotation) %>%
+  summarise(#生成新的列
+    tSNE_1 = median(tSNE_1),
+    tSNE_2 = median(tSNE_2) #这个是找个每个类的中心点，然后加标签
+  )
+#group_by分组，summarise生成新的一列，好看的
+library(ggpubr)
+ggplot(dat, aes(tSNE_1, tSNE_2))  +
+  geom_point(aes(colour  = auc_score)) +
+  viridis::scale_color_viridis(option="A") +
+  ggrepel::geom_label_repel(aes(label = seurat_annotation),
+                            data = class_avg,
+                            label.size = 0,
+                            segment.color = NA)+theme_bw()
+  # theme(
+  #   panel.background = element_rect(fill = "white"),  # 设置面板背景为白色
+  #   panel.grid.major = element_blank(),  # 去除主要网格线
+  #   panel.grid.minor = element_blank(),   # 去除次要网格线
+  #   axis.line = element_line(color = "black"),  # 设置坐标轴线条颜色为黑色
+  #   axis.ticks = element_line(color = "black")  # 设置坐标轴刻度线颜色为黑色
+  # )
+```
+
+##### 高低组
+
+```{r}
+ggplot(dat,aes(x = tSNE_1,y = tSNE_2))+
+  geom_point(aes(color = auc_group),size = 0.5)+
+  theme_classic()+theme_bw()
+```
+
+
+#### 4.组间比较,小提琴图
+
+```{r}
+library(paletteer)
+dat_ziji = dat[dat$auc_score!=0,]#把0值去掉，这样图才饱满
+ggplot(dat_ziji,aes(x = seurat_annotation,y= auc_score,fill = seurat_annotation))+
+  geom_violin(alpha = 0.9)+
+  geom_jitter(size = 0.2)+
+  scale_fill_paletteer_d("ggsci::category20_d3")+
+  theme_classic()
+```
+
+#### 5.活跃组的makergene
+
+```{r}
+f = "activemakers.Rdata"
+if(!file.exists(f)){
+  markers <- FindMarkers(seu.obj, ident.1 = "high_pyroptosis", 
+                       group.by = 'auc_group',min.pct = 0.25)#看看结果是否数据多，这里是两组比较，所以用findermakers
+  save(markers,file = f)
+}
+load(f)
+head(markers)
+
+#用 这个maker和表达量高的maker取交集，富集评分高，且高表达
+```
+
+TCGA分析？
+
+

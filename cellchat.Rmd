@@ -1,0 +1,198 @@
+---
+title: "cellchat"
+output: html_document
+date: "2025-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#安装、加载包
+```{r}
+# 安装 CellChat
+#remotes::install_github("sqjin/CellChat")
+library(CellChat)
+library(Seurat)
+library(patchwork)
+```
+
+# 创建 CellChat 对象
+```{r}
+seob_list <- SplitObject(sce.all, split.by = "category")
+
+# 创建 CellChat 对象
+cellchat_normal <- createCellChat(object = seob_list$normal, group.by = "celltype")
+
+cellchat_turned <- createCellChat(object = seob_list$turned, group.by = "celltype")
+
+```
+
+
+#设置数据库
+```{r}
+
+CellChatDB <- CellChatDB.human  # 使用人类配体-受体数据库
+showDatabaseCategory(CellChatDB)
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling", key = "annotation") 
+# 设置配体-受体数据库
+cellchat_normal@DB <- CellChatDB
+cellchat_turned@DB <- CellChatDB
+```
+
+
+# 提取数据
+```{r}
+cellchat_normal <- subsetData(cellchat_normal)  # 预处理 ctrl 样本
+cellchat_turned <- subsetData(cellchat_turned)  # 预处理 stim 样本
+```
+
+# 计算通讯信号
+
+```{r}
+
+cellchat_normal <- identifyOverExpressedGenes(cellchat_normal)
+cellchat_normal <- identifyOverExpressedInteractions(cellchat_normal)
+cellchat_normal <- computeCommunProb(cellchat_normal)
+
+cellchat_turned <- identifyOverExpressedGenes(cellchat_turned)
+cellchat_turned <- identifyOverExpressedInteractions(cellchat_turned)
+cellchat_turned <- computeCommunProb(cellchat_turned)
+
+
+# 过滤掉低置信度的通讯信号
+cellchat_normal <- filterCommunication(cellchat_normal, min.cells = 10)
+cellchat_turned <- filterCommunication(cellchat_turned, min.cells = 10)
+
+# 计算网络中心度
+cellchat_normal <- netAnalysis_computeCentrality(cellchat_normal, slot.name = "net")
+cellchat_turned <- netAnalysis_computeCentrality(cellchat_turned, slot.name = "net")
+
+# 转为数据框查看
+cellchat_normal_net <- subsetCommunication(cellchat_normal, slot.name = "net")
+cellchat_turned_net <- subsetCommunication(cellchat_turned, slot.name = "net")
+
+head(cellchat_normal_net)
+```
+
+字段解释：
+source: 源细胞类型，即产生信号分子（配体）的细胞。
+
+target: 目标细胞类型，即表达配体相应受体的细胞。
+
+ligand: 配体名称，由源细胞分泌或表达的信号分子。
+
+receptor: 受体名称，位于目标细胞表面，与配体结合来接收信号。
+
+prob: 通讯概率，表示这种配体-受体相互作用在细胞群体中的存在或活跃程度。
+
+pval: 相关统计分析的 p 值，用于量化该配体-受体互作的统计显著性。这里显示为0可能表示非常显著。
+
+interaction_name: 配体和受体的组合名称，通常以_连接。
+
+interaction_name_2: 另一种格式的配体-受体互作名称，通常以-连接。
+
+pathway_name: 相关信号通路的名称，显示该配体-受体对如何参与特定的生物过程或信号通路。
+
+annotation: 对通讯类型的注解，如”Secreted Signaling”表明这是一种分泌型信号传递方式。
+
+evidence: 提供该配体-受体互作信息的来源，如”KEGG: hsa04060”，表示这些信息来自KEGG数据库，具体是人类细胞信号通路图的一个部分。
+
+
+
+#推断通讯网络
+
+```{r}
+
+ 聚类细胞通讯网络
+cellchat_normal <- computeCommunProbPathway(cellchat_normal)
+cellchat_normal <- aggregateNet(cellchat_normal)
+
+cellchat_turned <- computeCommunProbPathway(cellchat_turned)
+cellchat_turned <- aggregateNet(cellchat_turned)
+
+# count：条数，weight：强度
+cellchat_normal_netP <- subsetCommunication(cellchat_normal, slot.name = "netP")
+cellchat_turned_netP <- subsetCommunication(cellchat_turned, slot.name = "netP")
+
+#中心性度量：评估细胞在通讯网络中的角色
+# 计算网络中心度
+cellchat_turned <- netAnalysis_computeCentrality(cellchat_turned, slot.name = "netP")
+cellchat_normal <- netAnalysis_computeCentrality(cellchat_normal, slot.name = "netP")
+```
+
+
+
+# 单独的可视化
+
+```{r}
+
+netVisual_circle(cellchat_normal@net$weight, edge.width.max = 3)
+netVisual_circle(cellchat_turned@net$weight, edge.width.max = 3)
+
+netVisual_heatmap(cellchat_normal, measure = "weight",color.heatmap = c("#26dee4","#f51e14"))
+netVisual_heatmap(cellchat_turned, measure = "weight",color.heatmap = c("#26dee4","#f51e14"))
+
+
+```
+
+
+#合并可视化
+```{r}
+
+object.list <- list(normal = cellchat_normal, turned = cellchat_turned)
+cellchat <- mergeCellChat(object.list, add.names = c("normal", "turned"))
+
+
+
+
+pdf(file = "plot/cellchat/turned和turned热图-越红turned通讯比normal越强.pdf",width = 9,height = 7)
+netVisual_heatmap(cellchat, 
+                  comparison = c(1,2), # 2 - 1  （tuerned  - normal）
+                  measure = "weight",
+                 c("#26dee4","#f51e14") )
+dev.off
+```
+
+#研究具体通路分析
+```{r}
+
+cellchat_normal@netP[["pathways"]]
+cellchat_turned@netP[["pathways"]]
+
+#查找到相关促转移的通路
+need_pathways =  c(
+  "VEGF",     # 血管生成与转移微环境
+  "TGFb",     # 诱导EMT和免疫抑制
+  "CXCL",     # 趋化因子介导定向迁移
+  "FN1",      # ECM重塑与细胞粘附
+  "THBS",     # 激活MMPs促进ECM降解
+  "SEMA3",    # 调控细胞骨架重组（如SEMA3C）
+  "SEMA4",    # 促侵袭信号（如SEMA4D）
+  "EGF",      # 激活EGFR促迁移通路
+  "COLLAGEN"  # 机械信号传导与微环境重塑
+)
+#“circle”, “hierarchy”, “chord”, “spatial”
+pdf(file = "plot/cellchat/EGF/圈圈图.pdf",width = 8,height = 8)
+netVisual_aggregate(cellchat_turned, signaling = "EGF", layout = "circle")
+dev.off
+
+#配体-受体贡献
+pdf(file = "plot/cellchat/CXCL/配体-受体贡献程度.pdf",width = 15,height = 8)
+netAnalysis_contribution(cellchat_turned, signaling = "CXCL")
+dev.off
+
+#热图展示
+pdf(file = "plot/cellchat/EGF/热图.pdf",width = 9,height = 7)
+netVisual_heatmap(cellchat_turned, signaling = "EGF")
+dev.off
+
+#信号发送者、信号接收者的度量
+pdf(file = "plot/cellchat/EGF/信号发送者-信号接收者的权重.pdf",width = 9,height = 7)
+netAnalysis_signalingRole_scatter(cellchat_turned, signaling = "EGF")
+dev.off
+
+```
+
+

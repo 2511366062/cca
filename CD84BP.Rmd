@@ -1,0 +1,256 @@
+---
+title: "CD8 -CD4 - plasma"
+author: "lixiaokang"
+date: "2025-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. 聚类分析
+```{r}
+library(harmony)
+ mem.maxVSize(vsize = 16384 * 4)
+ #颜色
+original_palette <- paletteer_d("ggthemes::Red_Blue_Brown") 
+extended_palette <- colorRampPalette(original_palette)(14)
+ 
+obj_cd4 = one_to_all(seu.obj,"CD4",0.5)
+obj_cd8 = one_to_all(seu.obj,"CD8",0.5)
+obj_bp = one_to_all(seu.obj,c("B","Plasma"),0.5)
+
+#0 - 13个簇
+
+```
+
+
+## 注释
+```{r}
+
+#扩展palette
+original_palette <- paletteer_d("ggthemes::Red_Blue_Brown") 
+extended_palette <- colorRampPalette(original_palette)(14)
+
+
+
+
+
+genes = read.table("plot/Mye/makers.txt", header=F, sep="\t",comment.char = "", check.names =FALSE)
+colnames(genes) = c("cluster","gene")
+
+#注释的气泡图
+p = jjDotPlot(object = obj_mye,
+          markerGene = genes,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = T,
+          tile.geom = F,
+          id = "seurat_clusters",#纵坐标
+          dot.col = c("#edf8b1","#2c7fb8")
+          )
+p
+
+
+pdf(file = "plot/Mye/marker基因气泡图.pdf",width = 15,height = 10)
+p
+dev.off
+
+
+# 分簇图
+p0 = clusterCornerAxes(object = obj_mye,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) + scale_color_manual(values = extended_palette)
+
+celltype = read.csv("export/Mye_zhushi.csv",header = F) #自己照着DotPlot图填的
+celltype
+new.cluster.ids <- celltype$V2
+names(new.cluster.ids) <- levels(obj_mye)
+obj_mye = RenameIdents(obj_mye, new.cluster.ids)
+obj_mye$celltype = Idents(obj_mye)
+
+
+
+genes = read.table("plot/Mye/makers.txt", header=F, sep="\t",comment.char = "", check.names =FALSE)
+colnames(genes) = c("cluster","gene")
+
+p = jjDotPlot(object = obj_mye,
+          gene = genes$gene,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = F,
+          tile.geom = T,
+          id = "celltype",#纵坐标
+          dot.col = c("#edf8b1","#2c7fb8"),
+          legend.position = "none"#隐藏图例
+          )
+
+pdf(file = "plot/Mye/注释后细胞类型的热图.pdf",width = 15,height = 10)
+p
+dev.off
+
+
+#注释图
+p1 = clusterCornerAxes(object = obj_mye,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 5,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) +
+scale_color_manual(values = extended_palette)
+p1
+
+p0 + p1
+
+pdf(file = "plot/Mye/UMAP_.pdf",width = 15,height = 10)
+p0 + p1
+dev.off
+
+
+
+
+
+```
+
+## 展示某个基因的表达情况
+```{r}
+genes = c("SPP1")
+
+featureCornerAxes(object =obj_mye,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  #axes = 'one',
+                  features = genes,
+                  minExp = 0,maxExp = 6,
+                  low ="#edf8b1" ,high = "#2c7fb8" ,
+                  pSize = 0.1,
+                
+                  )
+
+#FeaturePlot(obj_mye, features = c("S100A9","SPP1")) https://zhuanlan.zhihu.com/p/652376083
+```
+
+## 展示每个细胞的top基因
+```{r}
+Mye_allmarkers <- FindAllMarkers(obj_mye, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+dudu = Mye_allmarkers$cluster %in% c("Neutr_C1_S100A9","Neutr_C2_FCGR3B","Mph_C1_SPP1")
+Mye_allmarkers = Mye_allmarkers[dudu,]
+Mye_allmarkers[Mye_allmarkers$pct.1>0.6,]
+markerVolcano(markers = Mye_allmarkers,
+              topn = 5,
+              labelCol = extended_palette)
+```
+
+
+## 拟时序分析
+构建Monocle3所需数据
+expression_matrix：行是gene，列是cell的表达矩阵
+cell_metadata:对应Seurat对象的meta.data信息
+gene_metadata:基因名称信息，可用Gene symbol
+```{r}
+library(monocle3)
+library(Seurat)
+library(tidyverse)
+
+expression_matrix=obj_mye@assays$RNA$data
+cell_metadata=data.frame(obj_mye@meta.data)
+gene_annotation=data.frame(expression_matrix[,1])
+gene_annotation[,1]=row.names(gene_annotation)
+colnames(gene_annotation)=c("gene_short_name")
+##构建Monocle3 cds对象
+cds = new_cell_data_set(expression_data = expression_matrix,
+                        cell_metadata = cell_metadata,
+                        gene_metadata = gene_annotation)
+
+#预处理，相当于Seurat流程normalize过程
+#counts数据选择norm_method=c("log")
+#data数据选择norm_method=c("none")
+cds<-preprocess_cds(cds,num_dim=50,norm_method=c("none"))
+
+#去除批次效应,多个样本时可以通过此方式去除批次
+cds<-align_cds(cds,alignment_group="orig.ident")
+
+##降维，默认是"Umap"方式
+cds<-reduce_dimension(cds,cores=5)
+
+##聚类分群，分辨率调小，是为了让细胞是一群可以更好展示
+cds<-cluster_cells(cds,resolution=0.0000001)
+
+##拟时序
+cds<-learn_graph(cds)
+
+
+##选择特定细胞作为起点，代码比交互式页面方便许多，且不会出现选中自己不想要的细胞
+##这里我们假定以B细胞为起点
+myselect<-function(cds,select.classify,my_select){
+cell_ids<-which(colData(cds)[,select.classify]==my_select)
+closest_vertex<-
+cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+closest_vertex<-as.matrix(closest_vertex[colnames(cds),])
+root_pr_nodes<-
+igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+(which.max(table(closest_vertex[cell_ids,]))))]
+root_pr_nodes}
+
+cds<-order_cells(cds,root_pr_nodes=myselect(cds,select.classify='celltype',my_select="Mph_C4_CD68"))
+
+
+
+
+##使用Seurat的UMAP信息，这样可以与Seurat对象的细胞分布保持一致
+#cds.embed<-cds@int_colData$reducedDims$UMAP
+#int.embed<-Embeddings(obj_mye,reduction="umap")
+#int.embed<-int.embed[rownames(cds.embed),]
+#cds@int_colData$reducedDims$UMAP<-int.embed
+
+# 安装 ggsci 包（如果未安装）
+install.packages("ggsci")
+
+# 加载包
+library(ggsci)
+##不同细胞类型拟时序数值
+##拟时序值越高表示细胞分化程度越高，这里仅为演示，并非真实分化情况
+p = plot_cells(cds,color_cells_by="pseudotime",
+  show_trajectory_graph=T)+plot_cells(cds,
+  color_cells_by="celltype",
+  label_cell_groups=FALSE,
+  label_leaves=FALSE,
+  label_branch_points=FALSE,
+  graph_label_size=1)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/Mye/拟时序分析.pdf",width = 15,height = 10)
+p
+dev.off
+
+genes<-c('CD19','CD4',"SPP1")
+genes_cds<-cds[rowData(cds)$gene_short_name%in%genes,]
+p = plot_genes_in_pseudotime(genes_cds,color_cells_by="celltype",min_expr=0.5,cell_size=1.5)+scale_color_manual(values=pal_jco("default",alpha=0.6)(13))
+
+pdf(file = "plot/Mye/Monocle3差异分析析.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+
+
+

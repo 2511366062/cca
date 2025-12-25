@@ -1,0 +1,522 @@
+---
+title: "ALL"
+author: "lixiaokang"
+date: "2025-04-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = T,warning = T)
+```
+
+##加载颜色
+
+```{r}
+library(RColorBrewer)
+
+#扩展brewer
+palette <- colorRampPalette(brewer.pal(8, "Set2"))(24) 
+original_palette <- paletteer_d("ggsci::nrc_npg") 
+palette <- colorRampPalette(original_palette)(24)
+
+
+```
+
+## 1.绘制总的UMAP图
+
+```{r}
+library(scRNAtoolVis)
+library(paletteer)
+
+
+p = clusterCornerAxes(object = sce.all,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = F, #删除图例
+                  
+                  ) + scale_color_manual(values = palette)
+
+p
+pdf(file = "plot/ALL/所有细胞的UMAP.pdf",width = 15,height = 10)
+p
+dev.off
+
+```
+
+## 1.绘制总的簇 UMAP图
+
+```{r}
+library(scRNAtoolVis)
+library(paletteer)
+
+
+p0 = clusterCornerAxes(object = sce.all,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = F, #删除图例
+                  
+                  ) + scale_color_manual(values = palette)
+
+p_two = p0 + p
+pdf(file = "plot/ALL/簇和注释的UMAP111111.pdf",width = 15,height = 10)
+p0
+dev.off
+
+
+```
+
+
+## 2.绘制normal和turned的UMAP图
+```{r}
+
+
+p = clusterCornerAxes(object = sce.all,
+                  reduction = 'umap',
+                  noSplit = F,
+                  pSize = 0.1,
+                  arrowType='open',
+                  groupFacet = 'category',
+                  clusterCol = 'celltype',
+                  base_size = 25,
+                  aspect.ratio = 1,#绘图的宽高比(正方形)，默认NULL
+                  relLength = 0.5 #x轴y轴的相对某个的长度，0-1
+                  )+scale_color_manual(values = palette)
+
+p
+pdf(file = "plot/ALL/noturned组和turned组的UMAP.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+
+
+## 3.绘制6个样本的UMAP
+```{r}
+
+
+p = clusterCornerAxes(object = sce.all,
+                  reduction = 'umap',
+                  noSplit = F,
+                  pSize = 0.05,
+                  arrowType='open',
+                  groupFacet = 'sample',
+                  clusterCol = 'celltype',
+                  axes = "one",
+                  themebg = "bwCorner",
+                  base_size = 15,
+                  aspect.ratio = 1,#绘图的宽高比(正方形)，默认NULL
+                  relLength = 0.5, #x轴y轴的相对某个的长度，0-1
+                  )+scale_color_manual(values = palette)
+
+p
+pdf(file = "plot/ALL/6个样本的UMAP.pdf",width = 15,height = 10)
+p
+dev.off
+
+
+
+```
+## 4.细胞比例统计图
+```{r}
+#统计细胞个数
+dat = as.data.frame(table(Idents(sce.all)))
+#lable自动类型
+dat$label = paste(dat$Var1,dat$Freq,sep = ":")
+head(dat)
+library(ggplot2)
+library(paletteer)
+#View(palettes_d_names)
+
+p = ggplot(dat,aes(x = Freq,fill = Var1,y = Var1))+
+  scale_fill_manual(values = palette)+#颜色
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  geom_text(aes(x = 0,label = label),hjust = 0)+
+  theme(axis.text.y = element_blank(),   # 隐藏纵坐标刻度文字
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),# 隐藏纵坐标刻度线
+
+    panel.grid.major = element_blank(),#隐藏背景网格
+    panel.grid.minor = element_blank(),#隐藏背景网格
+    legend.title = element_text(size = 0),
+    legend.text = element_text(size = 18),
+    #panel.border = element_blank(),
+        )  
+p
+
+pdf(file = "plot/ALL/所有细胞个数统计.pdf",width = 12,height = 9)
+p
+dev.off
+```
+
+
+#统计细胞比例、个数
+
+```{r}
+# 比例图
+
+
+p1 = plot_category_bar(sce.all,factory = c("turned","normal"),position = "fill")
+p2 = plot_category_bar(sce.all,factory = c("turned","normal"),position = "stack")
+p3 = plot_category_bar(sce.all,factory = c("turned","normal"),position = "dodge")
+
+pdf(file = "plot/ALL/bar_条形图/对照组p3.pdf",width = 10,height = 8)
+p3
+dev.off
+
+
+ 
+p1 = plot_sample_bar(sce.all,colors = palette,position = "fill" ) 
+p2 = plot_sample_bar(sce.all,colors = palette,position = "stack" ) 
+p3 = plot_sample_bar(sce.all,colors = palette,position = "dodge" ) 
+
+pdf(file = "plot/ALL/bar_条形图/样本p1.pdf",width = 10,height = 8)
+p1
+dev.off
+ 
+ 
+#ggThemeAssistGadget(p)
+
+
+
+
+```
+
+
+## 5.统计tumor组细胞数量
+```{r}
+
+
+#统计细胞个数
+dat = sce.all@meta.data[sce.all$category == "turned",]
+dat =  as.data.frame(table(dat$celltype))
+
+
+#lable自动类型
+dat$label = paste(dat$Var1,dat$Freq,sep = ":")
+head(dat)
+library(ggplot2)
+library(paletteer)
+#View(palettes_d_names)
+
+p = ggplot(dat,aes(x = Freq,fill = Var1,y = Var1))+
+  scale_fill_manual(values = palette)+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  geom_text(aes(x = 0,label = label),hjust = 0)+
+  theme(axis.text.y = element_blank(),   # 隐藏纵坐标刻度文字
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),# 隐藏纵坐标刻度线
+
+    panel.grid.major = element_blank(),#隐藏背景网格
+    panel.grid.minor = element_blank(),#隐藏背景网格
+    legend.title = element_text(size = 0),
+    legend.text = element_text(size = 18),
+    #panel.border = element_blank(),
+        )  
+p
+
+
+pdf(file = "plot/ALL/转移组细胞个数统计.pdf",width = 12,height = 9)
+p
+dev.off
+
+```
+## 6.统计metastasis细胞数量
+```{r}
+
+#统计细胞个数
+
+dat = sce.all@meta.data[sce.all$category == "no_turned",]
+dat =  as.data.frame(table(dat$celltype))
+#lable自动类型
+dat$label = paste(dat$Var1,dat$Freq,sep = ":")
+head(dat)
+library(ggplot2)
+library(paletteer)
+#View(palettes_d_names)
+
+p = ggplot(dat,aes(x = Freq,fill = Var1,y = Var1))+
+  scale_fill_manual(values = palette)+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  geom_text(aes(x = 0,label = label),hjust = 0)+
+  theme(axis.text.y = element_blank(),   # 隐藏纵坐标刻度文字
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),# 隐藏纵坐标刻度线
+
+    panel.grid.major = element_blank(),#隐藏背景网格
+    panel.grid.minor = element_blank(),#隐藏背景网格
+    legend.title = element_text(size = 0),#图例标题字体大小
+    legend.text = element_text(size = 18),#图例字体大小
+    #panel.border = element_blank(),
+        )  
+p
+
+pdf(file = "plot/ALL/非转移组细胞统计.pdf",width = 12,height = 9)
+p
+dev.off
+
+```
+## 8.细胞比例条形图（normal turned）
+
+```{r}
+
+
+#按大类分组
+p = ggplot(sce.all@meta.data,aes(category,fill = celltype))+
+  geom_bar(position = "fill", alpha = 0.9,width = 0.5)+
+  scale_fill_manual(values = palette)+
+  theme_classic()+
+  coord_flip()+
+  coord_fixed(ratio = 4)+ #纵轴长度是横轴的4倍
+  theme(legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.text.x = element_text(size = 16)
+    )
+
+p
+
+
+pdf(file = "plot/ALL/turned_norturned细胞比例条形图.pdf",width = 12,height = 9)
+p
+dev.off
+
+```
+
+## 9.细胞比例条形图（6个样本）
+```{r}
+#按样本
+p = ggplot(sce.all@meta.data,aes(sample,fill = celltype))+
+  geom_bar(position = "fill", alpha = 0.9,width = 0.5)+
+  scale_fill_manual(values = palette)+
+  theme_classic()+
+  coord_flip()+
+  coord_fixed(ratio = 4)+ #纵轴长度是横轴的4倍
+  theme(legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.text.x = element_text(size = 16)
+    )
+p
+
+pdf(file = "plot/ALL/5个样本细胞比例条形图.pdf",width = 12,height = 9)
+p
+dev.off
+```
+
+
+## 13.marker基因热图，类似于气泡图
+```{r}
+# 事例数据，以他为例top3pbmc.markers
+library(tidyverse)
+#构建这样的数据框
+genes = read.table("import/makers/makers.txt", header=F, sep="\t",comment.char = "", check.names =FALSE)
+colnames(genes) = c("cluster","gene")
+
+p = jjDotPlot(object = sce.all,
+          markerGene = genes,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = F,
+          tile.geom = T,
+          id = "seurat_clusters"#纵坐标
+          )
+p
+
+pdf(file = "plot/ALL/marker基因热图.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+## marker气泡图，纵坐标是注释好的celltype
+```{r}
+
+# 事例数据，以他为例top3pbmc.markers
+library(tidyverse)
+#构建这样的数据框
+genes = read.table("import/marker/markers.csv", header=F, sep=",",comment.char = "", check.names =FALSE)
+genes = genes$V2
+genes = str_remove_all(genes," ")#删除空格
+p = jjDotPlot(object = sce.all,
+          gene  = genes,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = T,
+          tile.geom = F,
+          id = "celltype",#纵坐标
+          dot.col = c("#edf8b1","#2c7fb8")
+          )
+p
+
+pdf(file = "plot/ALL/marker基因气泡图.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+## marker热图
+```{r}
+# 
+library(tidyverse)
+#构建这样的数据框
+genes = read.table("import/marker/markers.csv", header=F, sep=",",comment.char = "", check.names =FALSE)
+genes = genes$V2
+genes = str_remove_all(genes," ")#删除空格
+p = jjDotPlot(object = sce.all,
+          gene  = genes,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = F,
+          tile.geom = T,
+          id = "celltype",#纵坐标
+          dot.col = c("#edf8b1","#2c7fb8")
+          )
+p
+
+pdf(file = "plot/ALL/marker基因热图.pdf",width = 15,height = 10)
+p
+dev.off
+
+```
+
+
+
+## KEGG富集分析
+```{r}
+
+all_diff = diff_we(object = sce.all,
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+
+#tagGene = c("SPP1","CXCR4","S100A8","TIMP1","FOS","JUN","CTSD","LGALS3","S100A11")
+
+#plots = getMyHSplot(object = all_diff,genes = tagGene)
+#rm(list = ls()[!ls() %in% c("sce.all","obj_cd8")])
+p = goodFuji(all_diff,tag = "up",colors = c("#e8c073",
+"#d5e873",
+"#e88673",
+"#739ae8"
+))
+p
+
+pdf(file = "plot/ALL/上调基因富集分析GO和KEGG.pdf",width = 20,height = 15)
+p
+dev.off
+
+
+
+
+
+
+```
+
+## 每个基因在不同分组的表达情况
+```{r}
+genes = c( "ANXA1","S100A4", "S100A8", "S100A9")
+
+p = featureCornerAxes(object = sce.all,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  #axes = 'one',
+                  features = genes,
+                  minExp = 0,maxExp = 6,
+                  pSize = 0.1,
+                  low = "#edf8b1",
+                  high = "#2c7fb8"
+                  )
+
+p 
+
+pdf(file = "plot/ALL/一些基因集的富集情况.pdf",width = 15,height = 10)
+p
+dev.off
+```
+
+
+
+
+
+## 10.每个簇的top3基因热图
+```{r}
+
+
+library(tidyverse)
+top3.makers= allmarkers %>% group_by(cluster) %>% top_n(4,wt = avg_log2FC)
+
+p = averageHeatmap(object=sce.all,
+               markerGene = top3.makers$gene,#指定基因
+               gene.order = top3.makers$gene,#指定顺序
+               htCol = c("#9D7660FF","#FEB5A2FF","#ED444AFF"),#变化颜色
+               annoCol = T,#细胞标签选自己的颜色
+               myanCol = paletteer_d("ggthemes::Red_Blue_Brown")[1:11]
+                )
+p
+
+pdf(file = "plot/ALL/top3Gene_heatmap.pdf",width = 12,height = 9)
+p
+dev.off
+
+```
+## 11.分页的top5基因
+```{r}
+
+topMarkers = FindAllMarkers(sce.all, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+p = markerVolcano(markers = topMarkers,
+              topn = 5,
+              labelCol = palette[1:12],
+              pforce = 5,#正分散程度
+              nforce = 5,#负分散程度
+              )
+p
+pdf(file = "plot/ALL/top5基因.pdf",width = 15,height = 10)
+p
+dev.off
+
+```
+## 12.好的分野标记基因
+```{r}
+ 
+pdf(file = "plot/ALL/top5_gene_another.pdf",width = 15,height = 10)
+jjVolcano(diffData = allmarkers,
+              tile.col = paletteer_d("ggthemes::Red_Blue_Brown")[1:11],
+          flip = F)#T则转制图表
+dev.off
+```
+
+### 12.1 标记基因雷达图
+```{r}
+p = jjVolcano(diffData = allmarkers,
+              tile.col = paletteer_d("ggthemes::Red_Blue_Brown")[1:11],
+          flip = F,#T则转制图表
+          size = 3.5,
+          fontface = 'italic',
+          polar = T
+          )+ ylim(-8,10)
+p
+pdf(file = "plot/ALL/top5_gene_another_leida.pdf",width = 15,height = 15)
+p
+dev.off
+```
+
+
+
+
+
+
+
+

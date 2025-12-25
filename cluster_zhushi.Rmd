@@ -1,0 +1,321 @@
+---
+title: "rmarkdown"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+rm(list = ls()[!ls() %in% c("seu.obj")])
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F)
+```
+### 1.获取临床信息 
+
+```{r}
+
+#做个自己的临床信息
+```
+
+### 2.批量读取
+```{r}
+
+
+ #x3:hexiuzhi turned
+#x:fuyonghua no_turned
+
+#x4:guomeirong turned
+#x5:wangshaoqiang no_turned
+#zqx:maairong turned
+  
+  samples_list <- list()
+                
+  samples <- c("normal1","normal2","normal3","turned1","turned2","turned3")
+# 循环处理每个文件夹，读取并存储为 seurat 对象，并添加到 seob_list
+  for (sample in samples) {
+  # 读取数据
+    dataSimple <- Read10X(
+    gene.column = 1,#可能版本不同id会不同
+    data.dir = str_c("import/data/", sample))
+  # 创建 seurat 对象
+    sample_obj <- CreateSeuratObject(
+    counts = dataSimple,
+    project = sample,
+    min.cells = 5,  # 对基因过滤
+    min.features = 200) # 对细胞过滤
+  # 将 seurat 对象存入列表
+    samples_list[[sample]] = sample_obj
+  
+  }
+
+  sce.all = merge(samples_list[[1]],samples_list[-1])
+  sce.all = JoinLayers(sce.all) #把layer合并，count1 count2
+ 
+  sce.all$sample =sce.all@active.ident#添加一列标记来自哪个样本，但是看这一列是因子，不知道后面有问题没
+
+  #save(sce.all,file = "Rdata/sce_all.Rdata")
+  #rm(list = ls())
+  
+
+
+
+```
+
+### 3.质控指标
+
+```{r}
+
+#线粒体
+sce.all$percent.mt <- PercentageFeatureSet(sce.all, pattern = "^MT-")
+#核糖体,只做标记，一般不过滤
+sce.all$percent.rb <-PercentageFeatureSet(sce.all, pattern = "^RP[SL]")
+#血红蛋白
+sce.all$percent.hb <- PercentageFeatureSet(sce.all,pattern = "^HB[ABDEGMQZ]")
+
+head(sce.all@meta.data, 3)
+
+pdf("plot/过滤前.pdf")
+VlnPlot(sce.all, 
+        features = c("nFeature_RNA",
+                     "nCount_RNA", 
+                     "percent.mt",
+                     "percent.hb"
+                     ),#""
+        ncol = 3,pt.size = 0, group.by = "sample")
+dim(sce.all)
+dev.off
+
+
+sce.all = subset(sce.all,subset = nFeature_RNA < 8000 &
+                nCount_RNA > 500 &
+                nCount_RNA < 40000 &
+                percent.mt < 10 &
+                percent.hb < 0.25 
+               
+                )
+dim(sce.all)
+
+pdf("plot/过滤后.pdf")
+VlnPlot(sce.all, 
+        features = c("nFeature_RNA",
+                     "nCount_RNA", 
+                     "percent.mt"
+                     ),
+        ncol = 3,pt.size = 0, group.by = "sample")
+dev.off
+
+
+
+```
+
+#### 4.整合降维聚类分群
+
+```{r}
+# 将虚拟内存上限提升至 64GB（需系统支持）
+ #mem.maxVSize(vsize = 16384 * 4)
+
+library(harmony)
+
+sce.all = sce.all %>% 
+NormalizeData() %>%  
+FindVariableFeatures() %>%  
+ScaleData(features = rownames(.)) %>%  
+RunPCA(pc.genes = VariableFeatures(.))  %>%
+RunHarmony("orig.ident") %>%
+FindNeighbors(dims = 1:20, reduction = "harmony") %>% 
+FindClusters(resolution = 0.6) %>% 
+RunUMAP(dims = 1:20,reduction = "harmony") #%>% 
+#RunTSNE(dims = 1:15,reduction = "harmony")
+sce.all = test
+
+
+
+ElbowPlot(sce.all)
+
+
+```
+
+#### 5.手动注释
+
+```{r}
+markercolor = c("#edf8b1","#2c7fb8")
+temp = sce.all
+df <- read.csv("../cca_blood/import/marker/markers.csv", header = FALSE, stringsAsFactors = FALSE)
+df$V1 <- factor(df$V1, levels = levels(temp),ordered = T)
+df <- df %>% arrange(V1)
+genes = df$V2
+p = markerDot(temp,genes,colors = markercolor)
+p
+
+
+
+myggsave(file = "plot/newfig/fig_5_D图.pdf", plot = p, dpi = 600, width = 15,height = 5)
+
+
+
+
+p = marker_heatmap(temp,genes,colors = markercolor)
+p
+
+myggsave(file = "plot/newfig/Supplementary_5_热图.pdf", plot = p, dpi = 600, width = 15,height = 6)
+
+umapColor = palette
+temp = obj_macr
+
+genes = c("MMP9","MMP14","SPP1")
+plist = timeAllPlot(obj = subset(temp,category == "turned"),do_genesUp = genes,do_genesDown = genes,startGene = "M1-like" )
+
+#============================================
+
+
+genes = read.table("import/marker/markers.csv", header=F, sep=",",comment.char = "", check.names =FALSE)
+colnames(genes) = c("cluster","gene")
+
+p = plot_markers_heatmap(obj = sce.all,genes = genes)
+p
+
+
+pdf(file = "plot/ALL/热图marker.pdf",width = 10,height = 8)
+p
+dev.off()
+#注释的气泡图
+p = jjDotPlot(object = sce.all,
+          gene  = genes$V2,
+          anno = T,
+          plot.margin = c(3,1,1,1),
+          point.geom = T,
+          tile.geom = F,
+          x.text.angle = 90,#x字体旋转
+          id = "seurat_clusters",#纵坐标
+          dot.col = c("#edf8b1","#2c7fb8")
+          )
+p
+
+pdf(file = "plot/ALL/marker.pdf",width = 15,height = 10)
+p
+dev.off
+
+writeLines(paste0(as.character(0:23),","))
+names(markers)
+
+
+celltype = read.csv("import/zhushi/zhushi.txt",sep=",",check.names =FALSE,header = F) #自己照着DotPlot图填的
+celltype
+
+
+new.cluster.ids <- celltype$V2
+names(new.cluster.ids) <- levels(sce.all)
+sce.all <- RenameIdents(sce.all, new.cluster.ids)
+sce.all$celltype = Idents(sce.all)
+
+#新增一列，样本类型 ###***************************
+library(stringr)
+
+sce.all$category = ifelse(str_detect(sce.all$sample,"normal"),"normal","turned")
+
+
+save(seu.obj,file = "Rdata/seu.obj.Rdata")
+
+
+load(file = "Rdata/seu.obj.Rdata")
+load(file = f)
+p_shou <- DimPlot(seu.obj, 
+              reduction = "umap", 
+              label = TRUE, 
+              pt.size = 0.5,cols = getClusterColor(8:18))
+p_shou
+pdf("plot/手动注释.pdf",width = 20,height = 16)
+p_shou
+dev.off
+
+DimPlot(seu.obj, 
+              reduction = "umap", 
+              label = TRUE, 
+              group.by = "category",
+              pt.size = 0.2,cols = getClusterColor(c(3,9)))
+
+rm(list = ls()[! ls() %in% c("seu.obj")])
+
+```
+
+
+
+#### 6.自动注释
+
+```{r fig.width= 12}
+library(celldex)
+library(SingleR)
+ls("package:celldex")
+#f = "ref_BlueprintEncode.RData"
+#if(!file.exists(f)){
+  ref <- celldex::BlueprintEncodeData()
+#  save(ref,file = f)
+#}
+#ref <- get(load(f))
+library(BiocParallel)
+scRNA = sce.all
+test = scRNA@assays$RNA$data
+
+pred.scRNA <- SingleR(test = test, 
+                      ref = ref,
+                      labels = ref$label.main, 
+                      clusters = scRNA@active.ident)
+pred.scRNA$pruned.labels
+#查看注释准确性 
+plotScoreHeatmap(pred.scRNA, clusters=pred.scRNA@rownames, fontsize.row = 9,show_colnames = T)
+new.cluster.ids <- pred.scRNA$pruned.labels
+names(new.cluster.ids) <- levels(scRNA)
+levels(scRNA)
+scRNA <- RenameIdents(scRNA,new.cluster.ids)
+levels(scRNA)
+
+
+p2 <- DimPlot(scRNA, reduction = "umap",label = T,pt.size = 0.5) + NoLegend()+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    legend.position = "right",
+    legend.title = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  ggtitle("Modern t-SNE Plot")
+p2
+p0+p2+p_shou
+pdf("plot/自动注释.pdf",width = 20,height = 16)
+p2
+dev.off
+```
+
+#### 7.marker基因
+
+找不同细胞类型间的差异基因
+
+```{r}
+
+
+  allmarkers <- FindAllMarkers(sce.all, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+  
+  test_allmarkers = allmarkers[allmarkers$avg_log2FC > 0.4 & allmarkers$pct.1 > 0.25 & allmarkers$cluster %in% c(6,15) & allmarkers$p_val_adj < 0.01,c("avg_log2FC","cluster", "p_val_adj", "gene")]
+library(data.table)
+fwrite(test_allmarkers, "export/Allmarkers_test33.csv")
+
+sce.all <- subset(sce.all, idents = c("0" , "1" , "2" , "3" , "4" , "5" , "6" , "7",  "8" , "9" , "10", "11", "14", "15"  ,"19", "20", "21"))
+
+ mem.maxVSize(vsize = 16384 * 4)
+
+library(harmony)
+
+sce.all = sce.all %>% 
+NormalizeData() %>%  
+FindVariableFeatures() %>%  
+ScaleData(features = rownames(.)) %>%  
+RunPCA(pc.genes = VariableFeatures(.))  %>%
+RunHarmony("orig.ident") %>%
+FindNeighbors(dims = 1:20, reduction = "harmony") %>% 
+FindClusters(resolution = 0.8) %>% 
+RunUMAP(dims = 1:20,reduction = "harmony") #%>% 
+
+```

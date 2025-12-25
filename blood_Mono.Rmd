@@ -1,0 +1,691 @@
+---
+title: "Mye"
+author: "lixiaokang"
+date: "2025-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. 聚类分析
+```{r}
+library(harmony)
+
+obj_mono = subset(sce.all, celltype == "Mono")
+obj_mono = obj_mono %>% 
+    NormalizeData() %>%  
+    FindVariableFeatures() %>%  
+    ScaleData(features = rownames(.)) %>%  
+    RunPCA(pc.genes = VariableFeatures(.))  %>%
+    RunHarmony("orig.ident") %>%
+    FindNeighbors(dims = 1:15, reduction = "harmony") %>% 
+    FindClusters(resolution = 0.7) %>% 
+    RunUMAP(dims = 1:15,reduction = "harmony") #%>% 
+
+obj_mono = subset(obj_mono,seurat_clusters == 0|
+                  seurat_clusters == 1|
+                  seurat_clusters == 2|
+                   seurat_clusters == 3|
+                     seurat_clusters == 4|
+                     seurat_clusters == 5|
+                     seurat_clusters == 6|
+                     seurat_clusters == 7|
+                     seurat_clusters == 8|
+                     seurat_clusters == 9|
+                    seurat_clusters == 10
+                    )
+
+#0 - 13个簇
+
+```
+
+
+## 注释
+```{r}
+
+markers <- FindAllMarkers(obj_mono, #only.pos = TRUE, 只返回正
+                               min.pct = 0.25, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+  
+    test_markers = markers[markers$avg_log2FC > 0.4 & 
+                             markers$pct.1 > 0.25  & 
+                             markers$cluster %in% 10:12&
+                             markers$p_val_adj < 0.01,c("avg_log2FC","cluster", "p_val_adj", "gene")]
+library(data.table)
+fwrite(test_markers, "export/mono(10-12).csv")
+writeLines(paste0(as.character(0:12),","))
+
+
+#热图
+
+genes = read.table("import/marker/mono_markers.csv", header=F, sep=",",comment.char = "", check.names =FALSE)
+colnames(genes) = c("cluster","gene")
+genes$gene = str_replace_all(genes$gene," ","")
+
+p = plot_markers_heatmap(obj = obj_mono,genes = genes,min_max  = c(0,1,4))
+p
+
+pdf(file = "plot/Mono/热图marker.pdf",width = 8,height = 10)
+p
+dev.off()
+
+
+#注释
+obj_mono= zhushi(object = obj_mono,file = "import/zhushi/mono_zhushi.txt")
+
+
+
+
+
+# 分簇图
+p0 = clusterCornerAxes(object = obj_mono,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) + scale_color_manual(values = palette)
+
+
+
+
+
+
+#注释图
+p1 = clusterCornerAxes(object = obj_mono,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 5,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) +
+scale_color_manual(values = palette)
+p1
+
+p0 + p1
+
+pdf(file = "plot/Mono/UMAP_.pdf",width = 15,height = 10)
+p0 + p1
+dev.off
+
+pdf(file = "plot/Mono/UMAP__.pdf",width = 10,height = 8)
+p1
+dev.off
+
+
+
+
+
+```
+
+## 画图：UMAP对比 细胞数量条形图 比例图
+```{r}
+
+plist = plot_bar_all(sce.all,colors = palette)
+
+plistNames = names(plist)
+
+for(name in plistNames) {
+  
+  filename = paste0("plot/Mono/条形图/", name, ".pdf")
+  
+  pdf(file = filename,width = 10,height = 8)
+  p = plist[[name]]
+  print(p)
+  dev.off()
+  
+}
+
+
+
+
+```
+## marker基因气泡图和热图
+```{r}
+list = heatmap_paopaotu(obj = obj_mono,file = "import/marker/mono_markers.csv")
+
+pdf(file = "plot/Mono/marker基因气泡图.pdf",width = 13,height = 8)
+list$paopao
+dev.off
+
+pdf(file = "plot/Mono/marker基因热图.pdf",width = 12,height = 6)
+list$heatmap
+dev.off
+
+```
+
+## 差异表达分析
+```{r}
+
+#所有的
+mono_diff = diff_we(object = obj_mono,
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category",
+                  log2FC = 0.4)
+ genes = rownames(mono_diff)[mono_diff$tag %in% c("up","down")]
+ 
+ genesUp = get_upgene(object = mono_diff)
+ genesdown = rownames(mono_diff)[mono_diff$tag %in% c("down")]
+ 
+ 
+ do_genesUp = c("CX3CR1", "RHOC", "CTSL", "STAT1", "GBP1")
+ 
+ do_genesDown =  c(
+  "CD14",       # 单核细胞表面标志物，下调削弱免疫监视和抗肿瘤功能
+  "HLA-DQA2",   # MHC II类分子，下调减少抗原呈递，抑制T细胞激活
+  "TNFAIP3",    # TNFα诱导蛋白3，下调增强NF-κB信号，促进促转移炎症
+  "CXCR4",      # 趋化因子受体，下调可能影响单核细胞归巢但复杂（需验证）
+  "CEBPD",      # 转录因子，下调抑制抗肿瘤单核细胞分化
+  "KLF10"       # 调控细胞凋亡，下调促进单核细胞存活和促转移表型
+)
+ 
+ 
+ ls_hs = getMyHSplot(object = mono_diff,genes = c(do_genesDown,do_genesUp))
+ 
+ pdf("plot/Mono/促转移重点基因的火山图.pdf",width = 10,height = 8)
+ls_hs$p1
+dev.off
+
+
+
+#umap图展示基因表达情况
+p = featureCornerAxes(object = obj_mono,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesUp,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#326087",
+                  high = "#E64B35"
+                  )
+
+pdf("plot/Mono/促转移上调基因表达情况.pdf",width = 10,height = 12)
+p
+dev.off
+
+
+
+p = featureCornerAxes(object = obj_mono,reduction = 'umap',
+                  groupFacet ="category",
+                  relLength = 0.5,
+                  relDist = 0.2,
+                  axes = 'one',
+                  features = do_genesDown,
+                  minExp = 0,maxExp = 4,
+                  pSize = 0.1,
+                  low = "#326087",
+                  high = "#E64B35"
+                  )
+
+pdf("plot/Mono/促转移下调基因表达情况.pdf",width = 10,height = 15)
+p
+dev.off
+
+
+
+#热图展示
+DoHeatmap(obj_mono, features = do_genesUp) + NoLegend()+
+  scale_fill_gradientn(colors = c("#2fa1dd", "white", "#f87669"))
+```
+
+
+#富集分析
+```{r}
+
+
+plist = all_Go_KEGG(object = mono_diff)
+
+
+  for (pname in names(plist)) {
+    
+  
+    filename = paste0("plot/Mono/GO_KEGG富集分析/", pname,"_.pdf")
+    pdf(file = filename,width = 10,height = 18)
+    p = plist[[pname]]
+    print(p)
+    dev.off()
+    
+  }
+
+```
+
+
+
+
+## 多分组多基因相线图
+```{r}
+
+
+
+
+
+tlist = two_group_genes_viloin_all(obj = obj_mono,color = palette,genes = do_genesUp)
+
+tlist_down = two_group_genes_viloin_all(obj = obj_mono,color = palette,genes = do_genesDown)
+
+for (i in 1 : length(tlist)) {
+  cellname = names(tlist)[i]
+  pdf(paste0("plot/Mono/上调基因在亚群中的对比/p", i, ".pdf"),width = 10,height = 7)
+  p = tlist[[i]]
+  print(p)
+  dev.off()
+  
+}
+
+for (i in 1 : length(tlist_down)) {
+  cellname = names(tlist_down)[i]
+  pdf(paste0("plot/Mono/下调基因在亚群中的对比/p", i, ".pdf"),width = 12,height = 8)
+  p = tlist_down[[i]]
+  print(p)
+  dev.off()
+  
+}
+
+
+
+
+
+
+```
+
+
+
+## 小提琴图
+```{r}
+library(stringr)
+ 
+haha = compare_OneGene_all(obj_macr,genes = do_genesDown)
+
+haha2 = compare_OneGene_all(obj_macr,genes = do_genesUp)
+
+for(cellname in c(levels(obj_macr))) {
+  
+  
+  for (gene in do_genesDown) {
+    
+    clean_cellname = str_replace_all(cellname, "[/ +]", "")#删除非法字符"/" 和" " "+"
+    filename = paste0("plot/macrophage/单个下调基因在不同亚群中的对比/p_(", clean_cellname,")_",gene,"_.pdf")
+    pdf(file = filename,width = 8,height = 6)
+    p = haha[[cellname]][[gene]]
+    print(p)
+    dev.off()
+    
+  }
+  
+  
+}
+
+
+
+for(cellname in c(levels(obj_macr))) {
+  
+  
+  for (gene in do_genesUp) {
+    
+    clean_cellname = str_replace_all(cellname, "[/ +]", "")#删除非法字符"/" 和" " "+"
+    filename = paste0("plot/macrophage/单个上调基因在不同亚群中的对比/p_(", clean_cellname,")_",gene,"_.pdf")
+    pdf(file = filename,width = 8,height = 6)
+    p = haha2[[cellname]][[gene]]
+    print(p)
+    dev.off()
+    
+  }
+  
+  
+}
+
+```
+
+
+#GSEA富集分析
+```{r}
+all_gene = rownames(mono_diff)
+all_ENTREZID = bitr(all_gene, 
+                      fromType = "SYMBOL", 
+                      toType = "ENTREZID", 
+                      OrgDb = org.Hs.eg.db)
+mono_diff_log2FC = mono_diff[which(rownames(mono_diff) %in% all_ENTREZID$SYMBOL),]
+
+logFC_dat = data.frame(SYMBOL = rownames(mono_diff_log2FC),log2FC = mono_diff_log2FC$avg_log2FC)
+
+finally_dat = merge(logFC_dat,all_ENTREZID,by = "SYMBOL")
+finally_vector = as.vector(finally_dat$log2FC)
+names(finally_vector) = as.vector(finally_dat$ENTREZID)
+finally_vector = sort(finally_vector,decreasing = T)
+
+GSEA_KEGG <- gseKEGG(finally_vector, organism = 'hsa', pvalueCutoff = 0.05,pAdjustMethod = "BH")
+
+#使用GO数据库富集到了
+GSEA_GO <- gseGO(
+  geneList = finally_vector,
+  OrgDb = org.Hs.eg.db,
+  ont = "BP",  # Biological Process
+  pvalueCutoff = 0.05
+)
+
+# 使用KEGG数据库重新运行gseKEGG,这里没有富集到
+GSEA_KEGG <- gseKEGG(
+  geneList = finally_vector,
+  organism = "hsa",
+  pvalueCutoff = 0.08 #0.25
+)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+#devtools::install_github("junjunlab/GseaVis")
+library("GseaVis")
+
+ p = dotplotGsea(data=GSEA_KEGG,topn=5,add.seg = T)
+pdf(file = "plot/Mono/T细胞的GSEA富集分析的TOP10.pdf",width = 10,height = 10)
+ p
+dev.off
+
+
+
+key_metastasis_pathways <- c(
+  "Ribosome",              # 调控细胞迁移、侵袭和EMT
+  "Chagas disease"       # 驱动炎症反应和抗凋亡，促进转移微环境
+  
+)
+
+terms = GSEA_KEGG@result[GSEA_KEGG@result$Description %in% key_metastasis_pathways,]$ID
+
+gseaNb(object=GSEA_KEGG,
+geneSetID='hsa05134',
+newGsea=T)
+
+
+
+
+
+
+
+
+
+
+
+p = gseaNb(object=GSEA_KEGG,
+geneSetID=terms,
+subPlot=2,
+termWidth=35,
+curveCol = palette[1:9],
+legend.position=c(0.8,0.8))
+
+
+pdf(file = "plot/Mono/Mono细胞的GSEA富集分析:只富集到2通路.pdf",width = 15,height = 8)
+ p
+dev.off
+```
+
+
+
+
+
+
+## 展示每个细胞群的top基因
+```{r}
+
+Mye_allmarkers <- FindAllMarkers(obj_mono, #only.pos = TRUE, 只返回正
+                               min.pct = 0.4, #过滤条件，至少要在某个🈶25%细胞表达
+                               #logfc.threshold = 0.25#logFC>0.25
+                               )
+p = markerVolcano(markers = Mye_allmarkers,
+              topn = 5,
+              labelCol = palette)
+
+pdf(file = "plot/Mono/top5基因.pdf",width = 20,height = 7)
+p
+dev.off
+```
+
+
+
+#多分组多基因的差异基因比较
+```{r}
+
+
+
+```
+
+
+#拟时序分析：slingshort
+
+```{r}
+
+
+
+
+library(slingshot)
+library(SingleCellExperiment)
+library(tidyverse)
+library(RColorBrewer)
+
+
+
+obj_mono_turned = subset(obj_mono, obj_mono$category == "turned")
+
+
+
+
+hvg_genes <- VariableFeatures(obj_mono_turned)
+
+ #在这里为了减少计算压力，我们把高变基因提取出来
+# 你可以跟我一样从 scale.data 中提取，也可以直接在 seurat 对象中找出来
+scale.data <- obj_mono_turned@assays$RNA$scale.data
+scale.gene <- rownames(scale.data)
+
+counts <- scobj@assays$RNA@counts
+counts <- counts[scale.gene,]
+
+# 将表达矩阵转换为SingleCellExperiment对象
+# 输入需要counts矩阵，否则影响下游分析
+sim <- SingleCellExperiment(assays = List(counts = counts)) 
+sim <- SingleCellExperiment(obj_mono_turned)
+
+
+sce <- as.SingleCellExperiment(obj_mono_turned)
+
+
+sim <- slingshot(sce, 
+                 clusterLabels = 'celltype',  # 选择colData中细胞注释的列名
+                 reducedDim = 'UMAP',  
+                 start.clus= "Naive/Central Memory",  # 选择起点
+                 end.clus = NULL     # 这里我们不指定终点
+                )     
+sds <- SlingshotDataSet(sim)
+
+
+#看看有几条
+sim$slingPseudotime_1
+
+
+
+
+
+#
+
+
+pdf(file = "plot/Mono/拟时序分析/p3.pdf",width = 10,height = 8)
+
+        colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100) # 我们把这些颜色变成100个梯度，模拟渐变色
+        plotcol <- colors[cut(sim$slingPseudotime_3, breaks=100)] # 这里我们用cut函数把 lineage2 分割成100个区间，同一区间的细胞给与同一个颜色
+        plotcol[is.na(plotcol)] <- "lightgrey" # 不属于 lineage3 的点为NA，我们把他们变成灰色
+        plotcol
+        
+        plot(reducedDims(sim)$UMAP, col = plotcol, pch=16, asp = 1,xaxt = "n",   # 隐藏x轴刻度线和标签
+             yaxt = "n",   # 隐藏y轴刻度线和标签
+             xlab = "",    # 隐藏x轴标签
+             ylab = "" )    # 隐藏y轴标签
+        lines(SlingshotDataSet(sim), lwd=2, col=brewer.pal(9,"Set1"))
+
+
+dev.off
+
+
+
+#加一个UMAP图
+p1 = clusterCornerAxes(object = obj_mono_turned,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'celltype',
+                  cellLabel = F,#设置了则在图中标出来
+                  cellLabelSize = 5,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                  ) +
+scale_color_manual(values = palette)
+
+pdf(file = "plot/Mono/拟时序分析/UMAP.pdf",width = 10,height = 8)
+p1
+dev.off
+
+```
+
+
+
+## 拟时序分析
+构建Monocle3所需数据
+expression_matrix：行是gene，列是cell的表达矩阵
+cell_metadata:对应Seurat对象的meta.data信息
+gene_metadata:基因名称信息，可用Gene symbol
+```{r}
+
+cds = getMonocleObj(obj = subset(obj_t,category == "turned"),startGene = "Tcm")
+pUMAP = plotUMAP(cds)
+plist_up = plotsChangeGenes(cds,do_genesUp)
+plist_down = plotsChangeGenes(cds,do_genesDown)
+yiwei_up = plotOneWeiCHangeGene(cds,startGene = "Tcm",genes = do_genesUp)
+yiwei_down = plotOneWeiCHangeGene(cds,startGene = "Tcm",genes = do_genesDown)
+
+pdf(file = "plot/time/t/turned/总体轨迹分析.pdf",width = 10,height = 8)
+pUMAP
+dev.off()
+
+
+for(gene in do_genesUp) {
+  filename = paste0("plot/time/t/turned/up/umap/",gene,".pdf")
+  pdf(file =filename,width = 8,height = 6)
+  p = plist_up[[gene]]
+  print(p)
+  dev.off()
+  
+}
+
+
+
+for(gene in do_genesDown) {
+  filename = paste0("plot/time/t/turned/down/umap/",gene,".pdf")
+  pdf(file =filename,width = 8,height = 6)
+  p = plist_down[[gene]]
+  print(p)
+  dev.off()
+  
+}
+
+
+for(gene in do_genesUp) {
+  filename = paste0("plot/time/t/turned/up/yiwei/",gene,".pdf")
+  pdf(file =filename,width = 8,height = 6)
+  p = yiwei_up[[gene]]
+  print(p)
+  dev.off()
+  
+}
+
+
+for(gene in do_genesDown) {
+  filename = paste0("plot/time/t/turned/down/yiwei/",gene,".pdf")
+  pdf(file =filename,width = 8,height = 6)
+  p = yiwei_down[[gene]]
+  print(p)
+  dev.off()
+  
+}
+
+
+plist = timeAllPlot(obj = subset(obj_t,category == "turned"),
+            startGene = "Tcm",do_genesUp = do_genesUp,do_genesDown = do_genesDown)
+
+outTimeAllPlot(plist,"t/turned",do_genesUp = do_genesUp,do_genesDown = do_genesDown )
+
+  
+
+mkdir -p plot/time/macro/normal/up/umap/
+mkdir -p  plot/time/macro/normal/down/umap/
+mkdir -p  plot/time/macro/normal/up/yiwei/
+mkdir -p  plot/time/macro/normal/down/yiwei/
+  
+mkdir -p plot/time/macro/turned/up/umap/
+mkdir -p  plot/time/macro/turned/down/umap/
+mkdir -p  plot/time/macro/turned/up/yiwei/
+mkdir -p  plot/time/macro/turned/down/yiwei/
+  
+
+```
+
+
+#拟时序分析
+```{r}
+library(SeuratWrappers)
+library(monocle3)
+# 将 Seurat 对象 seob_subset 转换为 Monocle 3 的 cell_data_set 对象
+cds <- as.cell_data_set(obj_t,
+                         #assay = "SCT",
+                         reductions = c("pca", "umap"),
+                         default.reduction = "umap"
+                         )
+# 添加基因信息
+rowData(cds) <- data.frame(
+  row.names = rownames(cds),
+  gene_short_name = rownames(cds)
+)
+# 聚类信息无法完整转移过来，使用 cluster_cells 重新聚类
+cds <- cluster_cells(cds, reduction_method = "UMAP", resolution = 0.3)
+
+
+#use_partition：F，则不分隔。close_loop：关闭cycle结构
+cds <- learn_graph(cds, use_partition = F, close_loop = T)
+
+# a helper function to identify the root principal points:
+get_earliest_principal_node <- function(cds, cell_type){
+  cell_ids <- which(colData(cds)[, "cell_type"] == cell_type)
+  
+  closest_vertex <-
+  cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+cds <- order_cells(cds, 
+                   root_pr_nodes = get_earliest_principal_node(cds, "Tcm"))
+
+
+
+```
+
+
+
+
+
+

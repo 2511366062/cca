@@ -1,0 +1,166 @@
+---
+title: "times"
+author: "lixiaokang"
+date: "2025-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+两个细胞之间比较相似，说明它们有过渡关系
+细胞轨迹是连着的吗？细胞是不是一个亚群，就是i分化是连着的意思
+```{r}
+
+DimPlot(obj_cd8_zs, 
+        reduction = "pca", 
+        group.by  = "seurat_annotation",
+        label = T) 
+
+
+sce <- as.SingleCellExperiment(obj_cd8_zs)
+
+
+library(slingshot)
+# 运行 Slingshot 进行轨迹推断
+sce <- slingshot(sce, clusterLabels = 'seurat_annotation', 
+                 reducedDim = 'PCA', )
+                 #start.clus = c("zy"), end.clus = "lateblast")
+sds <- SlingshotDataSet(sce)
+
+# 提取轨迹信息
+curves_df <- sds@curves[["Lineage1"]][["s"]][,c(1,2)]
+colnames(curves_df) <- c("Dim1", "Dim2")
+
+# 可视化
+DimPlot(obj_cd8_zs,
+        reduction = "pca",
+        group.by = "seurat_annotation"
+        ) +
+  geom_path(data = curves_df, aes(x = Dim1, y = Dim2), group = 1, color = "black", linewidth = 1)
+
+```
+
+```{r}
+library(SeuratWrappers)
+library(monocle3)
+# 将 Seurat 对象 seob_subset 转换为 Monocle 3 的 cell_data_set 对象
+cds <- as.cell_data_set(obj_cd8_zs,
+                         reductions = c("pca", "umap"),
+                         default.reduction = "umap"
+                         )
+# 添加基因信息
+rowData(cds) <- data.frame(
+  row.names = rownames(cds),
+  gene_short_name = rownames(cds)
+)
+
+# 聚类信息无法完整转移过来，使用 cluster_cells 重新聚类
+cds <- cluster_cells(cds, reduction_method = "UMAP", resolution = 0.3)
+
+
+
+DimPlot(
+  obj_cd8_zs,
+  reduction = "umap",
+  group.by = "seurat_annotation",
+  label = T
+) 
+
+
+cds <- learn_graph(cds, use_partition = F, close_loop = T)
+
+
+```
+
+```{r}
+proj = "TCGA-CESC"
+
+#下载并整理表达矩阵
+load("../TGCA/cesc_exp.Rdata")
+exp = cesc
+
+#下载并整理临床信息
+load("../TGCA/cesc_clinical.Rdata")
+clinical = cesc_clinical
+
+#表达矩阵行名ID转换
+library(tinyarray)
+exp = trans_exp_new(exp)
+exp[1:4,1:4]
+
+#基因过滤,仅保留在一半以上样本里表达的基因
+nrow(exp)
+exp = exp[apply(exp, 1, function(x) sum(x > 0) > 0.5*ncol(exp)), ]
+nrow(exp)
+
+
+#给样本分组，TCGA通过样品名字来分组
+Group = make_tcga_group(exp)
+table(Group)
+
+
+
+save(exp,Group,proj,clinical,file = paste0(proj,".Rdata"))
+
+
+g = rownames(exp)[1:100] #这里是示例，取了表达矩阵的前100个，活学活用，比如可以是差异基因与一组热点基因的交集
+#标准化数据，模型分析需要标准化
+exp = log2(edgeR::cpm(exp)+1)
+exp = exp[g,]
+
+#输入数据：x矩阵，y分组信息
+
+x=t(exp)
+y=ifelse(Group=="normal",0,1)#两个分组就是0 1 多个分组可以是 0 1 2
+library(glmnet)
+
+
+set.seed(1006)#设置随机种子，因为下面的代码运行出的结果有差别
+cv_fit <- cv.glmnet(x=x, y=y)
+plot(cv_fit)
+```
+
+```{r}
+
+#系数图
+fit <- glmnet(x=x, y=y)
+plot(fit,xvar = "lambda")
+```
+
+
+```{r}
+#当确定lambda值时，基因的系数，为0则代表不选择这些基因
+model <- glmnet(x=x, y=y,lambda=cv_fit$lambda.min)
+head(model$beta,20)
+```
+
+
+# newx参数是预测对象
+```{r}
+lasso.prob <- predict(cv_fit, newx=x , s = cv_fit$lambda.min )
+head(lasso.prob)
+```
+#
+
+
+
+```{r}
+library(pROC)
+library(ggplot2)
+
+m <- roc(y,lasso.prob[,1])
+
+g <- ggroc(m,legacy.axes = T,size =1,color = "#2fa1dd")
+auc(m)
+
+g + theme_bw() +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), 
+               colour = "grey", linetype = "dashed")+
+  annotate("text",x = .75, y = .25,
+           label = paste("AUC of min = ",format(round(as.numeric(auc(m)),2),nsmall = 2)),color = "#2fa1dd")
+```
+
+

@@ -1,0 +1,56 @@
+---
+title: "annotation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = F,warning = F)
+```
+
+#### 1.CellMarker
+
+http://biocc.hrbmu.edu.cn/CellMarker
+可以搜索，也可以很方便的下载。
+
+![](https://upload-images.jianshu.io/upload_images/9475888-eae206d85f2a3528.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+supp/Human_cell_marker.txt
+supp/Mouse_cell_marker.txt
+
+```{r}
+library(dplyr)
+cm = data.table::fread("../supp/Human_cell_markers.txt",data.table = F) %>% 
+  select(cellMarker,cellName,cancerType,geneSymbol,everything())
+head(cm)
+```
+
+#### 2.PanglaoDB
+
+https://panglaodb.se/
+
+![](https://upload-images.jianshu.io/upload_images/9475888-038b5ad70beb72fd.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+![](https://upload-images.jianshu.io/upload_images/9475888-53a73fdee79bc10b.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+这样就可以下载全部的数据。
+supp/PanglaoDB_markers_27_Mar_2020.tsv.gz
+我是2023.5.21下载的，这个数据好久没更新过。
+
+```{r}
+pl = data.table::fread("../supp/PanglaoDB_markers_27_Mar_2020.tsv.gz",data.table = F)
+head(pl)
+```
+
+
+#### 3.GSEA C8
+https://www.gsea-msigdb.org/gsea/msigdb/human/genesets.jsp?collection=C8
+
+这个可以不下载。用msigdbr即可。
+
+```{r}
+library(msigdbr)
+c8 <- msigdbr(species = "Homo sapiens",
+                 category = "C8")
+c8[1:4,1:4]
+length(unique(c8$gs_name))
+```
+

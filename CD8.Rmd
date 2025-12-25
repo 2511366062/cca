@@ -1,0 +1,533 @@
+---
+title: "vfb"
+author: "lixiaokang"
+date: "2025-04-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+## 1.获取CD8细胞
+```{r}
+
+library(harmony)
+ mem.maxVSize(vsize = 16384 * 4)
+obj_cd8 = subset(seu.obj,seurat_annotation == "CD8")
+obj_cd8 = obj_cd8 %>% 
+    NormalizeData() %>%  
+    FindVariableFeatures() %>%  
+    ScaleData(features = rownames(.)) %>%  
+    RunPCA(pc.genes = VariableFeatures(.))  %>%
+    RunHarmony("orig.ident") %>%
+    FindNeighbors(dims = 1:15, reduction = "harmony") %>% 
+    FindClusters(resolution = 0.2) %>% 
+    RunUMAP(dims = 1:15,reduction = "harmony") #%>% 
+
+clusterCornerAxes(object = obj_cd8,
+                  reduction = 'umap',
+                  noSplit = T,#只画一张
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = F,#设置了则在图中标出来
+                  cellLabelSize = 10,#细胞名的大小
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                  
+                 
+                  ) + scale_color_paletteer_d("ggthemes::Red_Blue_Brown")
+
+cd8_diff = diff_we(object = obj_cd8,
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+
+tagGene = c("SPP1","CXCR4","S100A8","TIMP1","FOS","JUN","CTSD","LGALS3","S100A11")
+
+plots = getMyHSplot(object = cd8_diff,genes = tagGene)
+#rm(list = ls()[!ls() %in% c("seu.obj","obj_cd8")])
+
+
+pdf("plot/cd8/hs_p1.pdf",width = 10,height = 7)
+plots$p1
+dev.off
+
+pdf("plot/cd8/hs_p2.pdf",width = 10,height = 7)
+plots$p2
+dev.off
+
+```
+
+## UMAP：turned、normal组
+```{r}
+umaps = get_yaqun_umap(obj_cd8)
+
+pdf(file = "plot/cd8/UMAP_normal_turned.pdf",width = 15,height = 10)
+umaps$category
+dev.off
+
+pdf(file = "plot/cd8/UMAP_six_samples.pdf",width = 15,height = 10)
+umaps$sample
+dev.off
+
+```
+
+
+## GO、KEGG、GSEA分析
+```{r}
+
+
+go_kegg_plots = do_GO_KEGG(cd8_diff,"plot/cd8/go.csv","plot/cd8/kegg.csv")
+
+pdf("plot/cd8/go_p1.pdf",width = 12,height = 18)
+go_kegg_plots$go_p1
+dev.off
+
+pdf("plot/cd8/go_p2.pdf",width = 12,height = 18)
+go_kegg_plots$go_p2
+dev.off
+
+pdf("plot/cd8/kegg_p1.pdf",width = 12,height = 18)
+go_kegg_plots$kegg_p1
+dev.off
+
+pdf("plot/cd8/kegg_p2.pdf",width = 12,height = 18)
+go_kegg_plots$kegg_p2
+dev.off
+
+```
+
+## GSEA富集
+```{r}
+
+all_gene = rownames(cd8_diff)
+all_ENTREZID = bitr(all_gene, 
+                      fromType = "SYMBOL", 
+                      toType = "ENTREZID", 
+                      OrgDb = org.Hs.eg.db)
+cd8_diff_log2FC = cd8_diff[which(rownames(cd8_diff) %in% all_ENTREZID$SYMBOL),]
+
+logFC_dat = data.frame(SYMBOL = rownames(cd8_diff_log2FC),log2FC = cd8_diff_log2FC$avg_log2FC)
+
+finally_dat = merge(logFC_dat,all_ENTREZID,by = "SYMBOL")
+finally_vector = as.vector(finally_dat$log2FC)
+names(finally_vector) = as.vector(finally_dat$ENTREZID)
+finally_vector = sort(finally_vector,decreasing = T)
+
+GSEA_KEGG <- gseKEGG(finally_vector, organism = 'hsa', pvalueCutoff = 0.05,pAdjustMethod = "BH")
+
+#使用GO数据库富集到了
+GSEA_GO <- gseGO(
+  geneList = finally_vector,
+  OrgDb = org.Hs.eg.db,
+  ont = "BP",  # Biological Process
+  pvalueCutoff = 0.05
+)
+
+# 使用KEGG数据库重新运行gseKEGG,这里没有富集到
+GSEA_KEGG <- gseKEGG(
+  geneList = finally_vector,
+  organism = "hsa",
+  pvalueCutoff = 0.05 #0.25
+)
+
+ridgeplot(GSEA_GO) 
+gseaplot2(GSEA_GO,2)
+gseaplot2(GSEA_GO,1:20)#30是根据ridgeplot中有30个富集通路得到的
+
+
+
+
+```
+
+
+```{r}
+
+#气泡图
+p1 = jjDotPlot(object = obj_cd8,gene = g,id = "category",xtree = F,ytree = F,dot.col = c("#F8766D","#C8133BFF"))+
+  theme(#legend.position = "none",#隐藏图例
+        panel.grid = element_blank())#隐藏网格线
+
+p2 = jjDotPlot(object = obj_cd8,
+              gene = g,
+              id = "category",
+          rescale = T,
+          rescale.min = 0,
+          rescale.max = 1,
+          point.geom = F,#禁用点图
+              tile.geom = T,#启用热图
+              xtree = F,ytree = F,
+              dot.col = c("#F8766D","#C8133BFF"))+
+    theme(legend.position = "none",#隐藏图例
+        panel.grid = element_blank())#隐藏网格线
+
+
+pdf(file = "plot/cd8/jiaowang_qipao.pdf",width = 9,height = 6)
+p1
+dev.off
+
+pdf(file = "plot/cd8/jiaowang_retu.pdf",width = 9,height = 6)
+p2
+dev.off
+
+
+
+```
+
+## 小提琴图
+```{r}
+# 促转移基因集
+p1 = duosampes_duogenes_vlnPlot(object = obj_cd8,
+                          genes = tagGene,
+                          group = "category")
+
+# 焦亡基因集
+p2 = duosampes_duogenes_vlnPlot(object = obj_cd8,
+                          genes = g,
+                          group = "category")
+
+
+pdf(file = "plot/cd8/turnedGenes_vlnplot.pdf",width = 9,height = 6)
+p1
+dev.off
+
+pdf(file = "plot/cd8/jiaowangGenes_vlnplot.pdf",width = 9,height = 6)
+p2
+dev.off
+```
+
+
+## 亚群注释
+```{r}
+
+ obj_cd8 = FindClusters(object = obj_cd8,resolution = 0.5)
+markers = read.delim("import/makers/makers_cd8.txt",header = F)
+markers = split(markers[,2],markers[,1])
+p_makers = DotPlot(obj_cd8,features = markers,cols = "RdYlBu")+
+  RotatedAxis()+theme(
+    plot.title = element_text(size = 50),  # 修改标题字体大小
+    #axis.title = element_text(size = 16),  # 修改轴标签字体大小
+    #axis.text = element_text(size = 12),   # 修改轴刻度字体大小
+    #legend.text = element_text(size = 12)  # 修改图例文字字体大小
+    
+  )
+p_makers
+
+pdf("plot/cd8/yaqun/zhushi_qipao.pdf",width = 12 ,height = 8)
+p_makers
+dev.off
+
+
+
+
+
+
+#   簇图
+p = clusterCornerAxes(object = obj_cd8_zs,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_clusters',
+                  cellLabel = T,#设置了则在图中标出来
+                  cellLabelSize = 10,
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                 
+                  ) + scale_color_paletteer_d("ggsci::nrc_npg")
+pdf(file = "plot/cd8/yaqun/zhushi_xuhao.pdf",width = 15,height = 10)
+p
+dev.off
+
+
+
+
+
+writeLines(paste0(as.character(0:9),","))
+names(markers)
+
+celltype = read.csv("export/zhushi_cd8.csv",header = F)
+
+new.cluster.ids <- celltype$V2
+names(new.cluster.ids) <- levels(obj_cd8)
+obj_cd8_zs <- RenameIdents(obj_cd8, new.cluster.ids)
+obj_cd8_zs$seurat_annotation = Idents(obj_cd8_zs)
+p = clusterCornerAxes(object = obj_cd8_zs,
+                  reduction = 'umap',
+                  noSplit = T,#不组
+                  clusterCol = 'seurat_annotation',
+                  cellLabel = F,#设置了则在图中标出来
+                  
+                  pSize = 0.1,
+                  arrowType='open',#分开的箭头
+                  show.legend = T, #删除图例
+                 
+                  ) + scale_color_paletteer_d("ggsci::nrc_npg")#nature的配色
+
+pdf(file = "plot/cd8/yaqun/zhushi.pdf",width = 15,height = 10)
+p
+dev.off
+
+
+
+```
+
+
+
+
+## 亚群细胞分析
+```{r}
+#气泡图
+duosampes_duogenes_vlnPlot(obj_cd8_zs,"SPP1",group = "seurat_annotation")
+
+
+obj_cd8_zs$celltype.category <- 
+  paste(obj_cd8_zs$seurat_annotation, obj_cd8_zs$category, sep = "_")
+obj_cd8_zs$celltype.sample <- 
+  paste(obj_cd8_zs$seurat_annotation, obj_cd8_zs$sample, sep = "_")
+
+p_all = numberCellsss(object = obj_cd8_zs)
+p_all
+
+p_normal = numberCellsss(object = obj_cd8_zs,category_ = "normal")
+p_normal
+
+p_turned = numberCellsss(object = obj_cd8_zs,category_ = "turned")
+p_turned
+
+p_normal1 = numberCellsss(object = obj_cd8_zs,sample_ = 'normal1')
+p_normal1
+
+p_normal2 = numberCellsss(object = obj_cd8_zs,sample_ = 'normal2')
+p_normal2
+
+p_normal3 = numberCellsss(object = obj_cd8_zs,sample_ = 'normal3')
+p_normal3
+
+p_turned1 = numberCellsss(object = obj_cd8_zs,sample_ = 'turned1')
+p_turned1
+
+p_turned2 = numberCellsss(object = obj_cd8_zs,sample_ = 'turned2')
+p_turned2
+
+p_turned3 = numberCellsss(object = obj_cd8_zs,sample_ = 'turned3')
+p_turned3
+
+
+pdf(file = "plot/cd8/yaqun/numberCells/all.pdf",width = 12,height = 9 )
+p_all
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/normal.pdf",width = 12,height = 9 )
+p_normal
+dev.off
+
+
+pdf(file = "plot/cd8/yaqun/numberCells/turned.pdf",width = 12,height = 9 )
+p_turned
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/normal1.pdf",width = 12,height = 9 )
+p_normal1
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/normal2.pdf",width = 12,height = 9 )
+p_normal2
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/normal3.pdf",width = 12,height = 9 )
+p_normal3
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/turned1.pdf",width = 12,height = 9 )
+p_turned1
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/turned2.pdf",width = 12,height = 9 )
+p_turned2
+dev.off
+
+pdf(file = "plot/cd8/yaqun/numberCells/turned3.pdf",width = 12,height = 9 )
+p_turned3
+dev.off
+
+```
+## SPP1基因在celltype.category表达情况
+```{r}
+p = duosampes_duogenes_vlnPlot(object = obj_cd8_zs,
+                          genes = "SPP1",
+                          group = "celltype.category")
+
+pdf(file = "plot/cd8/yaqun/spp1_.pdf",width = 12,height = 9)
+p
+dev.off
+
+
+
+
+
+
+
+```
+## 相线图
+
+```{r}
+
+
+
+p_all = compare_OneGene(obj_cd8_zs,"SPP1","category","CD8")
+
+p_Memory = compare_OneGene(subset(obj_cd8_zs,seurat_annotation == "Memory"),"SPP1","category","Memory")
+
+p_Exhausted = compare_OneGene(subset(obj_cd8_zs,seurat_annotation == "Exhausted"),"SPP1","category","Exhausted")
+
+p_Proliferating = compare_OneGene(subset(obj_cd8_zs,seurat_annotation == "Proliferating"),"SPP1","category","Proliferating")
+
+p_Effector = compare_OneGene(subset(obj_cd8_zs,seurat_annotation == "Effector"),"SPP1","category","Effector")
+
+p_TRM = compare_OneGene(subset(obj_cd8_zs,seurat_annotation == "TRM"),"SPP1","category","TRM")
+
+p_Memory
+p_Exhausted
+p_Proliferating
+p_Effector
+p_TRM
+
+
+pdf(file = "plot/cd8/yaqun/spp1/p_Memory.pdf",width = 9,height = 6)
+p_Memory
+dev.off
+
+pdf(file = "plot/cd8/yaqun/spp1/p_Exhausted.pdf",width = 9,height = 6)
+p_Exhausted
+dev.off
+
+pdf(file = "plot/cd8/yaqun/spp1/p_Proliferating.pdf",width = 9,height = 6)
+p_Proliferating
+dev.off
+
+
+pdf(file = "plot/cd8/yaqun/spp1/p_Effector.pdf",width = 9,height = 6)
+p_Effector
+dev.off
+
+pdf(file = "plot/cd8/yaqun/spp1/p_TRM.pdf",width = 9,height = 6)
+p_TRM
+dev.off
+
+```
+
+## 富集图、KEGG、GO、GSEA
+```{r}
+
+
+
+Memory_diff <- diff_we(object = subset(obj_cd8_zs,seurat_annotation == "Memory"),
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+Exhausted_diff <- diff_we(object = subset(obj_cd8_zs,seurat_annotation == "Exhausted"),
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+Proliferating_diff <- diff_we(object = subset(obj_cd8_zs,seurat_annotation == "Proliferating"),
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+Effector_diff <- diff_we(object = subset(obj_cd8_zs,seurat_annotation == "Effector"),
+                   ident_1 = "turned",
+                   ident_2 = "normal",
+                   category = "category")
+
+
+
+Memory_fuji = do_GO_KEGG(Memory_diff,"plot/cd8/yaqun/Memory_go.csv","plot/cd8/yaqun/Memory_kegg.csv")
+
+Exhausted_fuji = do_GO_KEGG(Exhausted_diff,"plot/cd8/yaqun/Exhausted_go.csv","plot/cd8/yaqun/Exhausted_kegg.csv")
+
+Proliferating_fuji = do_GO_KEGG(Proliferating_diff,"plot/cd8/yaqun/Proliferating_go.csv","plot/cd8/yaqun/Proliferating_kegg.csv")
+
+Effector_fuji = do_GO_KEGG(Effector_diff,"plot/cd8/yaqun/Effector_go.csv","plot/cd8/yaqun/Effector_kegg.csv")
+
+pdf("plot/cd8/yaqun/Memory_go_p1.pdf",width = 12,height = 18)
+Memory_fuji$go_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Memory_go_p2.pdf",width = 12,height = 18)
+Memory_fuji$go_p2
+dev.off
+
+pdf("plot/cd8/yaqun/Memory_kegg_p1.pdf",width = 12,height = 18)
+Memory_fuji$kegg_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Memory_kegg_p2.pdf",width = 12,height = 18)
+Memory_fuji$kegg_p2
+dev.off
+
+
+
+pdf("plot/cd8/yaqun/Exhausted_go_p1.pdf",width = 12,height = 18)
+Exhausted_fuji$go_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Exhausted_go_p2.pdf",width = 12,height = 18)
+Exhausted_fuji$go_p2
+dev.off
+
+pdf("plot/cd8/yaqun/Exhausted_kegg_p1.pdf",width = 12,height = 18)
+Exhausted_fuji$kegg_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Exhausted_kegg_p2.pdf",width = 12,height = 18)
+Exhausted_fuji$kegg_p2
+dev.off
+
+
+
+
+
+
+pdf("plot/cd8/yaqun/Proliferating_go_p1.pdf",width = 12,height = 18)
+Proliferating_fuji$go_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Proliferating_go_p2.pdf",width = 12,height = 18)
+Proliferating_fuji$go_p2
+dev.off
+
+pdf("plot/cd8/yaqun/Proliferating_kegg_p1.pdf",width = 12,height = 18)
+Proliferating_fuji$kegg_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Proliferating_kegg_p2.pdf",width = 12,height = 18)
+Proliferating_fuji$kegg_p2
+dev.off
+
+
+
+
+
+pdf("plot/cd8/yaqun/Effector_go_p1.pdf",width = 12,height = 18)
+Effector_fuji$go_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Effector_go_p2.pdf",width = 12,height = 18)
+Effector_fuji$go_p2
+dev.off
+
+pdf("plot/cd8/yaqun/Effector_kegg_p1.pdf",width = 12,height = 18)
+Effector_fuji$kegg_p1
+dev.off
+
+pdf("plot/cd8/yaqun/Effector_kegg_p2.pdf",width = 12,height = 18)
+Effector_fuji$kegg_p2
+dev.off
+
+```
+
+

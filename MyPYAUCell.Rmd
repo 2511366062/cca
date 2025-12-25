@@ -1,0 +1,161 @@
+---
+title: "MyAUCell"
+author: "lixiaokang"
+date: "2025-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = F,message = F)
+```
+
+## 1.热点基因集
+```{r}
+pygene=read.table("import/makers/gcgene.txt", header=F, sep="\t",comment.char = "", check.names =FALSE)
+pygene = as.vector(pygene$V1)
+pygene
+```
+
+## 2.焦亡热点基因集和上调基因的取交集
+```{r}
+
+k = allmarkers$p_val_adj<0.05 & allmarkers$avg_log2FC>1
+g = intersect(allmarkers$gene[k],pygene)
+g
+
+p = DotPlot(seu.obj,features = g,cols = c("#9D7660FF","#FEB5A2FF","#ED444AFF"))+RotatedAxis()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+  # 让横坐标文字旋转90度
+  theme(legend.position = "none") +  # 去掉图例
+  theme(axis.title = element_blank())  # 去掉横纵坐标标签
+p
+
+pdf(file = "plot/pyAUcell/paopao_intersect12.pdf",width = 7,height = 5)
+p
+dev.off
+
+#venn图
+geneList = list("Up-regulated gene" = allmarkers$gene[k],"Pyroptosis gene" = pygene)
+library(tinyarray)
+pdf("plot/pyAUcell/py_venn9.pdf",width = 8,height = 8)
+draw_venn(geneList,"")
+dev.off
+
+```
+
+## 3. AUcell评分
+```{r}
+library(GSEABase)
+
+#每个细胞的基因表达矩阵 + 目标基因集（如干细胞相关基因）
+geneSets <- GeneSet(g, setName="pyroptosis")#铁死亡基因集，Aucell需要这种格式
+geneSets
+#BiocManager::install("AUCell")
+library(AUCell)
+#1.准备矩阵
+exprMatrix = seu.obj@assays$RNA@layers$data
+rownames(exprMatrix) = Features(seu.obj)
+colnames(exprMatrix) = Cells(seu.obj)
+#开始打分
+cells_rankings <- AUCell_buildRankings(exprMatrix)#排序
+cells_AUC <- AUCell_calcAUC(geneSets, cells_rankings)#计算AUC值,评分
+set.seed(333)
+cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) #探索阈值，根据评分阈值分成分高的组分低的组 
+auc_thr = cells_assignment$pyroptosis$aucThr$selected
+auc_thr#阈值
+```
+
+## 4.可视化
+```{r}
+seu.obj$auc_score = as.numeric(getAUC(cells_AUC))#添加一列 评分组
+seu.obj$auc_group = ifelse(seu.obj$auc_score>auc_thr,"high_pyroptosis","low_pyroptosis") #添加一列，评分高的，评分低的
+FeaturePlot(seu.obj,features = "auc_score")#默认的
+
+#dat这里是制作了一个数据框，加了umap坐标的数据框
+dat<- data.frame(seu.obj@meta.data, 
+                seu.obj@reductions$umap@cell.embeddings,#umap的坐标
+                seurat_annotation = seu.obj@active.ident)#按顺序的
+class_avg <- dat %>%
+  group_by(seurat_annotation) %>%
+  summarise(#生成新的列
+    umap_1 = median(umap_1),
+    umap_2 = median(umap_2) #这个是找个每个类的中心点，然后加标签
+  )
+#group_by分组，summarise生成新的一列，好看的
+library(ggpubr)
+p1 = ggplot(dat, aes(umap_1, umap_2))  +
+  geom_point(aes(colour  = auc_score),size = 0.1) +
+  viridis::scale_color_viridis(option="F") +theme_bw()+
+  theme(
+    # 去掉背景网格
+    panel.grid = element_blank(),  
+    # 去掉绘图外边的方框
+  panel.border = element_blank(),
+  # 去掉刻度线
+  axis.ticks = element_blank(),
+  # 去掉刻度上的数值
+  axis.text = element_blank(),
+  # 去掉 x 轴和 y 轴的标签
+  axis.title = element_blank()
+   
+  )
+p1
+p0 + p1
+
+pdf(file = "plot/pyAUcell/UMAP_AUcell.pdf",width = 15,height = 10)
+p1
+dev.off
+
+pdf(file = "plot/pyAUcell/UMAP_AUcell_add_Umap.pdf",width = 15,height = 10)
+p0 + p1
+dev.off
+
+```
+## 5.焦亡基因气泡图
+```{r}
+p = jjDotPlot(object = seu.obj,gene = g,id = "seurat_annotation",xtree = F,ytree = F,dot.col = c("white","#C8133BFF"))+
+  theme(legend.position = "none",#隐藏图例
+        panel.grid = element_blank())#隐藏网格线
+p
+
+
+#直接输出p还是有图例和网格线，可能需要直接去掉而不是隐藏
+pdf(file = "plot/pyAUcell/beautiful_qipao.pdf",width = 9,height = 6)
+jjDotPlot(object = seu.obj,gene = g,id = "seurat_annotation",xtree = F,ytree = F,dot.col = c("white","#C8133BFF"))+
+  theme(legend.position = "none",#隐藏图例
+        panel.grid = element_blank())#隐藏网格线
+dev.off
+```
+
+## 6.焦亡基因热图
+
+```{r}
+
+p = jjDotPlot(object = seu.obj,
+              gene = g,
+              id = "seurat_annotation",
+          rescale = T,
+          rescale.min = 0,
+          rescale.max = 1,
+          point.geom = F,#禁用点图
+              tile.geom = T,#启用热图
+              xtree = F,ytree = F,
+              dot.col = c("white","#C8133BFF"))+
+    theme(legend.position = "none",#隐藏图例
+        panel.grid = element_blank())#隐藏网格线
+
+p
+
+pdf(file = "plot/pyAUcell/beautiful_retu.pdf",width = 9,height = 6)
+p
+dev.off
+
+
+```
+
+
+
+
+
+
+
+
